@@ -16,7 +16,7 @@ function fail(message) {
 		'Alternatives:',
 		'  brew install arjunkomath/tap/openinsight',
 		'  https://github.com/arjunkomath/openinsight/releases',
-		'  git clone the repo and run it with Bun (>=1.3): bun source/cli.js',
+		'  git clone the repo and run it with Bun (>=1.4): bun source/cli.js',
 	];
 
 	console.error([message, ...alternatives].join('\n'));

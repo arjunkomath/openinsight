@@ -5,6 +5,7 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	writeFileSync,
 } from 'node:fs';
@@ -49,17 +50,25 @@ test('--help prints usage and exits 0', async () => {
 });
 
 test('paths prints the platform log directory and exits 0', async () => {
-	const directory = mkdtempSync(join(tmpdir(), 'openinsight-paths-'));
+	const directory = realpathSync(
+		mkdtempSync(join(tmpdir(), 'openinsight-paths-')),
+	);
 	mkdirSync(join(directory, '.openinsight'));
 
 	try {
-		const env = {...process.env, XDG_STATE_HOME: join(directory, 'state')};
+		const env = {
+			...process.env,
+			HOME: directory,
+			USERPROFILE: directory,
+			LOCALAPPDATA: join(directory, 'local'),
+			XDG_STATE_HOME: join(directory, 'state'),
+		};
 		const {code, stdout, stderr} = await runCli(['paths'], {
 			cwd: directory,
 			env,
 		});
 		expect(code).toBe(0);
-		expect(stdout).toContain(`Logs: ${getLogDir({env})}`);
+		expect(stdout).toContain(`Logs: ${getLogDir({env, home: directory})}`);
 		expect(stdout).toContain(`Config: ${join(directory, '.openinsight')}`);
 		expect(stderr).toBe('');
 
@@ -234,12 +243,22 @@ test('one-shot CLI requires both a source and query', async () => {
 });
 
 test('one-shot CLI selects a source, executes a query, summarizes, and exits', async () => {
-	const directory = mkdtempSync(join(tmpdir(), 'openinsight-cli-query-'));
+	const directory = realpathSync(
+		mkdtempSync(join(tmpdir(), 'openinsight-cli-query-')),
+	);
 	const databasePath = join(directory, 'data.db');
 	const connectionString = `sqlite://${databasePath}`;
 	const configDirectory = join(directory, '.openinsight');
 	const fakeClaude = join(directory, 'claude');
 	const stateDirectory = join(directory, 'state');
+	const env = {
+		...process.env,
+		HOME: directory,
+		USERPROFILE: directory,
+		LOCALAPPDATA: join(directory, 'local'),
+		PATH: `${directory}:${process.env.PATH}`,
+		XDG_STATE_HOME: stateDirectory,
+	};
 
 	try {
 		const database = await createConnection(connectionString);
@@ -289,11 +308,7 @@ printf '{"type":"result","subtype":"success","is_error":false,"structured_output
 			],
 			{
 				cwd: directory,
-				env: {
-					...process.env,
-					PATH: `${directory}:${process.env.PATH}`,
-					XDG_STATE_HOME: stateDirectory,
-				},
+				env,
 			},
 		);
 
@@ -309,7 +324,7 @@ printf '{"type":"result","subtype":"success","is_error":false,"structured_output
 		expect(result.stdout).toContain('Summarizing results...');
 		expect(result.stdout).toContain('Summary:\nThe only user is Ada.');
 		const log = readFileSync(
-			join(stateDirectory, 'openinsight', 'openinsight.log'),
+			join(getLogDir({env, home: directory}), 'openinsight.log'),
 			'utf8',
 		);
 		expect(log).toContain('provider=claude');
