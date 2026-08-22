@@ -12,6 +12,7 @@
 	"bugs": {
 		"url": "https://github.com/arjunkomath/openinsight/issues"
 	},
+	"packageManager": "bun@1.4.0",
 	"keywords": [
 		"database",
 		"sql",
@@ -42,7 +43,7 @@
 		"dev": "bun --watch source/cli.js",
 		"dev:web": "bun --watch source/cli.js --web",
 		"format": "prettier --write .",
-		"test": "prettier --check . && bun test"
+		"test": "prettier --check . && bun test --parallel"
 	},
 	"files": [
 		"bin"
