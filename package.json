@@ -49,11 +49,11 @@
 		"bin"
 	],
 	"devDependencies": {
-		"@openrouter/ai-sdk-provider": "^1.5.4",
-		"@opentui/core": "^0.2.16",
-		"@opentui/react": "^0.2.16",
-		"@types/react": "^19.2.17",
-		"ai": "^5.0.220",
+		"@openrouter/ai-sdk-provider": "^3.0.0",
+		"@opentui/core": "^0.5.6",
+		"@opentui/react": "^0.5.6",
+		"@types/react": "^19.2.18",
+		"ai": "^7.0.76",
 		"prettier": "^3.9.6",
 		"react": "^19.2.8",
 		"zod": "^4.4.3"
