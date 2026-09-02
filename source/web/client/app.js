@@ -75,6 +75,46 @@ const api = async (path, options = {}) => {
 	return data;
 };
 
+const streamApi = async (path, options, onLog) => {
+	const response = await fetch(path, {
+		...options,
+		headers: {
+			accept: 'application/x-ndjson',
+			'content-type': 'application/json',
+			...(options.headers || {}),
+		},
+	});
+	if (!response.ok) {
+		const data = await response.json();
+		throw new Error(data.error || 'Request failed');
+	}
+	if (!response.body) throw new Error('Streaming response is unavailable');
+
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = '';
+	let result = null;
+	const readLine = line => {
+		if (!line.trim()) return;
+		const event = JSON.parse(line);
+		if (event.type === 'log') onLog?.(event.message);
+		if (event.type === 'result') result = event.result;
+		if (event.type === 'error') throw new Error(event.error || 'Stream failed');
+	};
+
+	while (true) {
+		const {done, value} = await reader.read();
+		buffer += decoder.decode(value, {stream: !done});
+		const lines = buffer.split('\n');
+		buffer = done ? '' : lines.pop();
+		for (const line of lines) readLine(line);
+		if (done) break;
+	}
+	if (buffer.trim()) readLine(buffer);
+	if (!result) throw new Error('Agent stream ended without a response');
+	return result;
+};
+
 const escapeHtml = value =>
 	String(value ?? '')
 		.replaceAll('&', '&amp;')
@@ -226,6 +266,7 @@ document.querySelector('#app').innerHTML = `
 						<span class="muted" id="dashboard-agent-status"></span>
 					</div>
 				</form>
+					<div id="dashboard-activity"></div>
 
 				<section id="dashboard-preview" hidden>
 					<div class="dashboard-titlebar">
@@ -259,8 +300,6 @@ document.querySelector('#app').innerHTML = `
 
 					<div class="dashboard-grid" id="dashboard-grid"></div>
 				</section>
-
-				<div id="dashboard-activity"></div>
 			</main>
 		</div>
 	</div>
@@ -832,12 +871,19 @@ const renderDashboardWorkspace = () => {
 	el.dashboardAgentStatus.innerHTML = generating
 		? 'Asking the agent <span class="elapsed">0s</span>'
 		: '';
+	if (state.dashboardLogs.length === 0) {
+		el.dashboardActivity.innerHTML = '';
+	} else {
+		el.dashboardActivity.innerHTML = `
+			<details class="activity" open>
+				<summary>Live agent activity<span class="rail-count">${state.dashboardLogs.length}</span></summary>
+				<div class="timeline" aria-live="polite">${state.dashboardLogs.map(log => `<div>${escapeHtml(log)}</div>`).join('')}</div>
+			</details>
+		`;
+	}
 
 	el.dashboardPreview.hidden = !draft;
-	if (!draft) {
-		el.dashboardActivity.innerHTML = '';
-		return;
-	}
+	if (!draft) return;
 
 	el.dashboardTitle.textContent = draft.title;
 	el.dashboardDescription.textContent = draft.description;
@@ -875,17 +921,6 @@ const renderDashboardWorkspace = () => {
 		state.dashboardResults,
 		running,
 	);
-
-	if (state.dashboardLogs.length === 0) {
-		el.dashboardActivity.innerHTML = '';
-	} else {
-		el.dashboardActivity.innerHTML = `
-			<details class="activity" ${state.status?.verbose ? 'open' : ''}>
-				<summary>Activity<span class="rail-count">${state.dashboardLogs.length}</span></summary>
-				<div class="timeline">${state.dashboardLogs.map(log => `<div>${escapeHtml(log)}</div>`).join('')}</div>
-			</details>
-		`;
-	}
 };
 
 const renderSectionStates = () => {
@@ -1056,7 +1091,7 @@ const generateDashboardDraft = async event => {
 		dashboardMessage: '',
 	});
 	try {
-		const result = await api(
+		const result = await streamApi(
 			`/api/sources/${state.selectedSourceId}/dashboards/generate`,
 			{
 				method: 'POST',
@@ -1065,11 +1100,14 @@ const generateDashboardDraft = async event => {
 					currentDashboard: state.dashboardDraft,
 				}),
 			},
+			message =>
+				setState({
+					dashboardLogs: [...state.dashboardLogs, message],
+				}),
 		);
 		if (result.error) {
 			setState({
 				error: result.error,
-				dashboardLogs: result.logs || [],
 				busy: null,
 			});
 			return;
@@ -1085,7 +1123,6 @@ const generateDashboardDraft = async event => {
 			dashboardCreationPrompt: editing
 				? state.dashboardCreationPrompt
 				: instruction,
-			dashboardLogs: result.logs || [],
 			busy: null,
 		});
 		await executeDashboard();

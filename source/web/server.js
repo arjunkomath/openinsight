@@ -71,6 +71,43 @@ const json = (body, status = 200) =>
 		},
 	);
 
+const ndjson = task =>
+	new Response(
+		new ReadableStream({
+			async start(controller) {
+				const encoder = new TextEncoder();
+				const send = value =>
+					controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
+
+				try {
+					await task(send);
+				} catch (error) {
+					try {
+						send({
+							type: 'error',
+							error: error.message || 'Unexpected streaming error',
+						});
+					} catch {
+						// The client disconnected.
+					}
+				} finally {
+					try {
+						controller.close();
+					} catch {
+						// The stream was already cancelled.
+					}
+				}
+			},
+		}),
+		{
+			headers: {
+				'cache-control': 'no-cache, no-store',
+				'content-type': 'application/x-ndjson; charset=utf-8',
+				'x-accel-buffering': 'no',
+			},
+		},
+	);
+
 const notFound = () => json({error: 'Not found'}, 404);
 
 const publicSource = source => ({
@@ -187,20 +224,35 @@ const routeApi = async (request, url) => {
 
 			const schemaResult = await loadSchemaForSource(source);
 			if (schemaResult.error) return json({error: schemaResult.error}, 400);
+			const runGeneration = onLog =>
+				generateDashboard(
+					instruction,
+					currentDashboard,
+					schemaResult.schema,
+					source.type,
+					configuredAI,
+					onLog,
+				);
+
+			if (request.headers.get('accept')?.includes('application/x-ndjson')) {
+				return ndjson(async send => {
+					const onLog = createLogHandler({
+						uiLog: message => send({type: 'log', message}),
+						fileLog: configuredFileLog,
+						verbose: configuredAI.verbose,
+					});
+					const result = await runGeneration(onLog);
+					send({type: 'result', result});
+				});
+			}
+
 			const logs = [];
 			const onLog = createLogHandler({
 				uiLog: message => logs.push(message),
 				fileLog: configuredFileLog,
 				verbose: configuredAI.verbose,
 			});
-			const result = await generateDashboard(
-				instruction,
-				currentDashboard,
-				schemaResult.schema,
-				source.type,
-				configuredAI,
-				onLog,
-			);
+			const result = await runGeneration(onLog);
 			return json({...result, logs});
 		}
 

@@ -404,7 +404,9 @@ async function runClaude({
 
 		log(`[AI Response] Model: ${model}`);
 		if (!responseField) {
-			log(`[AI Response] Dashboard: ${value.dashboard?.title || 'generated'}`);
+			log(
+				`[AI Response] ${value.message || `Built ${value.dashboard?.title || 'dashboard'}`}`,
+			);
 			return {...value, error: null};
 		}
 
