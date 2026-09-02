@@ -6,7 +6,7 @@ const getConfigFile = () => join(getConfigDir(), 'config.json');
 
 function loadConfig() {
 	if (!existsSync(getConfigFile())) {
-		return {version: '1.0.0', dataSources: [], presets: {}};
+		return {version: '1.0.0', dataSources: [], presets: {}, dashboards: {}};
 	}
 
 	const content = readFileSync(getConfigFile(), 'utf-8');
@@ -16,6 +16,7 @@ function loadConfig() {
 		...config,
 		dataSources: config.dataSources || [],
 		presets: config.presets || {},
+		dashboards: config.dashboards || {},
 	};
 }
 
@@ -72,11 +73,14 @@ export function removeDataSource(id) {
 
 		const presets = {...config.presets};
 		delete presets[id];
+		const dashboards = {...config.dashboards};
+		delete dashboards[id];
 
 		writeConfig({
 			...config,
 			dataSources: filtered,
 			presets,
+			dashboards,
 			lastModified: new Date().toISOString(),
 		});
 		return true;
@@ -138,6 +142,93 @@ export function removePreset(sourceId, presetId) {
 		);
 		config.lastModified = new Date().toISOString();
 
+		writeConfig(config);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function loadDashboards(sourceId) {
+	try {
+		return loadConfig().dashboards[sourceId] || [];
+	} catch {
+		return [];
+	}
+}
+
+export function saveDashboard(sourceId, dashboard, prompt) {
+	try {
+		const config = loadConfig();
+		const dashboards = config.dashboards[sourceId] || [];
+		if (dashboards.some(item => item.title === dashboard.title)) {
+			return {
+				success: false,
+				error: 'A dashboard with this title already exists',
+			};
+		}
+
+		const now = new Date().toISOString();
+		const saved = {
+			id: crypto.randomUUID(),
+			...dashboard,
+			prompt,
+			createdAt: now,
+			updatedAt: now,
+		};
+		dashboards.push(saved);
+		config.dashboards[sourceId] = dashboards;
+		config.lastModified = now;
+		writeConfig(config);
+		return {success: true, dashboard: saved};
+	} catch (error) {
+		return {success: false, error: error.message};
+	}
+}
+
+export function updateDashboard(sourceId, dashboardId, dashboard) {
+	try {
+		const config = loadConfig();
+		const dashboards = config.dashboards[sourceId] || [];
+		const index = dashboards.findIndex(item => item.id === dashboardId);
+		if (index === -1) return {success: false, error: 'Dashboard not found'};
+		if (
+			dashboards.some(
+				item => item.id !== dashboardId && item.title === dashboard.title,
+			)
+		) {
+			return {
+				success: false,
+				error: 'A dashboard with this title already exists',
+			};
+		}
+
+		const saved = {
+			...dashboards[index],
+			...dashboard,
+			id: dashboardId,
+			updatedAt: new Date().toISOString(),
+		};
+		dashboards[index] = saved;
+		config.dashboards[sourceId] = dashboards;
+		config.lastModified = saved.updatedAt;
+		writeConfig(config);
+		return {success: true, dashboard: saved};
+	} catch (error) {
+		return {success: false, error: error.message};
+	}
+}
+
+export function removeDashboard(sourceId, dashboardId) {
+	try {
+		if (!existsSync(getConfigFile())) return false;
+		const config = loadConfig();
+		const dashboards = config.dashboards[sourceId] || [];
+		const filtered = dashboards.filter(item => item.id !== dashboardId);
+		if (filtered.length === dashboards.length) return false;
+
+		config.dashboards[sourceId] = filtered;
+		config.lastModified = new Date().toISOString();
 		writeConfig(config);
 		return true;
 	} catch {

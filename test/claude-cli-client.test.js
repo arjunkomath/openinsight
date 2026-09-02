@@ -88,6 +88,58 @@ test('Claude client summarizes query results via structured output', async () =>
 	expect(stdin).toContain('Be direct');
 });
 
+test('Claude client generates a complete dashboard config', async () => {
+	let invocation;
+	const dashboard = {
+		title: 'Signups',
+		description: 'Daily signups',
+		defaultRange: {type: 'relative', days: 7},
+		widgets: [
+			{
+				type: 'line',
+				title: 'Daily signups',
+				width: 'full',
+				sql: 'SELECT day, signups FROM users WHERE created_at >= $1 AND created_at < $2 LIMIT 1000',
+				x: 'day',
+				y: ['signups'],
+			},
+		],
+	};
+	const client = createClaudeCliClient('/claude', 'opus', null, {
+		spawn: (command, options) => {
+			invocation = {command, options};
+			return fakeChild(
+				jsonResponse({
+					type: 'result',
+					subtype: 'success',
+					is_error: false,
+					structured_output: {
+						dashboard,
+						message: 'Built a signup dashboard.',
+					},
+				}),
+			);
+		},
+	});
+
+	const result = await client.generateDashboard(
+		'Show signups',
+		{users: [{column: 'created_at', type: 'timestamp'}]},
+		'sqlite',
+		null,
+	);
+
+	expect(result).toEqual({
+		dashboard,
+		message: 'Built a signup dashboard.',
+		error: null,
+	});
+	expect(invocation.command.join(' ')).toContain('Build or revise a dashboard');
+	const stdin = await invocation.options.stdin.text();
+	expect(stdin).toContain('Show signups');
+	expect(stdin).toContain('$1 as the inclusive start time');
+});
+
 test('Claude client emits full subprocess diagnostics only in verbose mode', async () => {
 	const logs = [];
 	const client = createClaudeCliClient(

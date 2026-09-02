@@ -67,7 +67,7 @@ class SqlConnection {
 		return this.client;
 	}
 
-	async query(sql, {abortSignal} = {}) {
+	async query(sql, {abortSignal, parameters = []} = {}) {
 		throwIfAborted(abortSignal, 'Query execution cancelled');
 
 		const useEphemeralClient =
@@ -76,7 +76,7 @@ class SqlConnection {
 			? new SQL(this.connectionString)
 			: this.#getClient();
 
-		const query = client.unsafe(sql).execute();
+		const query = client.unsafe(sql, parameters).execute();
 
 		const onAbort = () => {
 			try {

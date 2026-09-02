@@ -1,6 +1,9 @@
+import {renderDashboardGrid} from './dashboard.js';
+
 const MAX_RENDERED_ROWS = 500;
 
 const state = {
+	view: 'query',
 	status: null,
 	sources: [],
 	selectedSourceId: null,
@@ -10,6 +13,15 @@ const state = {
 	schemaFilter: '',
 	expandedTables: new Set(),
 	presets: [],
+	dashboards: [],
+	selectedDashboardId: null,
+	dashboardDraft: null,
+	dashboardDirty: false,
+	dashboardResults: null,
+	dashboardRange: null,
+	dashboardMessage: '',
+	dashboardCreationPrompt: '',
+	dashboardLogs: [],
 	turns: [],
 	messages: [],
 	pendingSql: '',
@@ -18,7 +30,13 @@ const state = {
 	logs: [],
 	busy: null,
 	error: '',
-	openSections: {sources: true, presets: true, history: true, schema: true},
+	openSections: {
+		sources: true,
+		dashboards: true,
+		presets: true,
+		history: true,
+		schema: true,
+	},
 	confirming: null,
 };
 
@@ -77,6 +95,10 @@ document.querySelector('#app').innerHTML = `
 		<header class="topbar">
 			<div class="identity">
 				<span class="brand">OpenInsight</span>
+				<nav class="topnav" aria-label="Workspace">
+					<button class="topnav-button" data-action="switch-view" data-view="query">Query</button>
+					<button class="topnav-button" data-action="switch-view" data-view="dashboards">Dashboards</button>
+				</nav>
 				<span class="crumb" id="crumb"></span>
 			</div>
 			<div class="topbar-meta" id="topbar-meta"></div>
@@ -94,7 +116,17 @@ document.querySelector('#app').innerHTML = `
 					<div class="rail-body" id="source-list"></div>
 				</section>
 
-				<section class="rail" data-section="presets">
+				<section class="rail dashboard-only" data-section="dashboards">
+						<div class="rail-head">
+							<button class="rail-toggle" data-action="toggle-section" data-section="dashboards">
+								<span class="chevron"></span>Dashboards
+							</button>
+							<button class="icon-button" data-action="new-dashboard" title="Build dashboard">+</button>
+						</div>
+						<div class="rail-body" id="dashboard-list"></div>
+					</section>
+
+					<section class="rail query-only" data-section="presets">
 					<div class="rail-head">
 						<button class="rail-toggle" data-action="toggle-section" data-section="presets">
 							<span class="chevron"></span>Presets
@@ -104,7 +136,7 @@ document.querySelector('#app').innerHTML = `
 					<div class="rail-body" id="preset-list"></div>
 				</section>
 
-				<section class="rail" data-section="history">
+				<section class="rail query-only" data-section="history">
 					<div class="rail-head">
 						<button class="rail-toggle" data-action="toggle-section" data-section="history">
 							<span class="chevron"></span>Session
@@ -128,7 +160,7 @@ document.querySelector('#app').innerHTML = `
 				</section>
 			</aside>
 
-			<main class="workspace" id="workspace">
+			<main class="workspace" id="query-workspace">
 				<div id="banner"></div>
 
 				<section class="panel onboarding" id="onboarding" hidden>
@@ -175,6 +207,61 @@ document.querySelector('#app').innerHTML = `
 
 				<div id="activity"></div>
 			</main>
+
+			<main class="workspace dashboard-workspace" id="dashboard-workspace" hidden>
+				<div id="dashboard-banner"></div>
+
+				<section class="panel placeholder" id="dashboard-no-source" hidden>
+					Select a data source before building a dashboard.
+				</section>
+
+				<form class="panel dashboard-agent" id="dashboard-agent-form">
+					<div class="panel-head">
+						<span class="eyebrow" id="dashboard-agent-title">Build with agent</span>
+						<span class="hint">The agent controls widgets, SQL, charts, and layout</span>
+					</div>
+					<textarea id="dashboard-instruction" rows="3" placeholder="Build a dashboard for revenue, orders, and top customers…"></textarea>
+					<div class="actions">
+						<button class="primary" id="dashboard-generate-button" type="submit">Build dashboard</button>
+						<span class="muted" id="dashboard-agent-status"></span>
+					</div>
+				</form>
+
+				<section id="dashboard-preview" hidden>
+					<div class="dashboard-titlebar">
+						<div>
+							<div class="dashboard-title-line">
+								<h1 id="dashboard-title"></h1>
+								<span class="tag tag-warn" id="dashboard-unsaved" hidden>Unsaved changes</span>
+							</div>
+							<p id="dashboard-description"></p>
+						</div>
+						<div class="head-actions">
+							<button class="text-button" data-action="discard-dashboard" id="dashboard-discard" type="button">Discard changes</button>
+							<button class="primary" data-action="save-dashboard" id="dashboard-save" type="button">Save dashboard</button>
+						</div>
+					</div>
+
+					<div class="agent-message" id="dashboard-message" hidden></div>
+
+					<div class="panel range-toolbar">
+						<div class="range-presets" aria-label="Time range">
+							<button data-action="set-dashboard-range" data-days="7" type="button">7 days</button>
+							<button data-action="set-dashboard-range" data-days="30" type="button">30 days</button>
+							<button data-action="set-dashboard-range" data-days="90" type="button">90 days</button>
+						</div>
+						<div class="range-custom">
+							<label>From <input id="dashboard-range-start" type="datetime-local" /></label>
+							<label>To <input id="dashboard-range-end" type="datetime-local" /></label>
+							<button class="primary" data-action="run-dashboard" id="dashboard-run" type="button">Run dashboard</button>
+						</div>
+					</div>
+
+					<div class="dashboard-grid" id="dashboard-grid"></div>
+				</section>
+
+				<div id="dashboard-activity"></div>
+			</main>
 		</div>
 	</div>
 
@@ -213,6 +300,7 @@ const el = {
 	crumb: document.querySelector('#crumb'),
 	topbarMeta: document.querySelector('#topbar-meta'),
 	sourceList: document.querySelector('#source-list'),
+	dashboardList: document.querySelector('#dashboard-list'),
 	presetList: document.querySelector('#preset-list'),
 	presetCount: document.querySelector('#preset-count'),
 	historyList: document.querySelector('#history-list'),
@@ -237,6 +325,27 @@ const el = {
 	presetDialog: document.querySelector('#preset-dialog'),
 	presetForm: document.querySelector('#preset-form'),
 	presetDialogError: document.querySelector('#preset-dialog-error'),
+	queryWorkspace: document.querySelector('#query-workspace'),
+	dashboardWorkspace: document.querySelector('#dashboard-workspace'),
+	dashboardBanner: document.querySelector('#dashboard-banner'),
+	dashboardNoSource: document.querySelector('#dashboard-no-source'),
+	dashboardAgentForm: document.querySelector('#dashboard-agent-form'),
+	dashboardAgentTitle: document.querySelector('#dashboard-agent-title'),
+	dashboardInstruction: document.querySelector('#dashboard-instruction'),
+	dashboardGenerateButton: document.querySelector('#dashboard-generate-button'),
+	dashboardAgentStatus: document.querySelector('#dashboard-agent-status'),
+	dashboardPreview: document.querySelector('#dashboard-preview'),
+	dashboardTitle: document.querySelector('#dashboard-title'),
+	dashboardDescription: document.querySelector('#dashboard-description'),
+	dashboardUnsaved: document.querySelector('#dashboard-unsaved'),
+	dashboardDiscard: document.querySelector('#dashboard-discard'),
+	dashboardSave: document.querySelector('#dashboard-save'),
+	dashboardMessage: document.querySelector('#dashboard-message'),
+	dashboardRangeStart: document.querySelector('#dashboard-range-start'),
+	dashboardRangeEnd: document.querySelector('#dashboard-range-end'),
+	dashboardRun: document.querySelector('#dashboard-run'),
+	dashboardGrid: document.querySelector('#dashboard-grid'),
+	dashboardActivity: document.querySelector('#dashboard-activity'),
 };
 
 const setState = patch => {
@@ -253,6 +362,38 @@ const armConfirm = id => {
 	confirmTimer = setTimeout(() => {
 		if (state.confirming === id) setState({confirming: null});
 	}, 4000);
+};
+
+const copyValue = value => JSON.parse(JSON.stringify(value));
+
+const toLocalInput = date => {
+	const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+	return local.toISOString().slice(0, 16);
+};
+
+const relativeRange = days => {
+	const end = new Date();
+	const start = new Date(end);
+	start.setDate(start.getDate() - days);
+	return {
+		mode: 'relative',
+		days,
+		start: toLocalInput(start),
+		end: toLocalInput(end),
+	};
+};
+
+const renderView = () => {
+	const dashboards = state.view === 'dashboards';
+	el.queryWorkspace.hidden = dashboards;
+	el.dashboardWorkspace.hidden = !dashboards;
+	for (const node of document.querySelectorAll('.query-only'))
+		node.hidden = dashboards;
+	for (const node of document.querySelectorAll('.dashboard-only'))
+		node.hidden = !dashboards;
+	for (const button of document.querySelectorAll('.topnav-button')) {
+		button.classList.toggle('is-active', button.dataset.view === state.view);
+	}
 };
 
 const renderTopbar = () => {
@@ -310,6 +451,36 @@ const renderSources = () => {
 								)}</button>`
 							: ''
 					}
+				</div>
+			`;
+		})
+		.join('');
+};
+
+const renderDashboardList = () => {
+	if (!state.selectedSourceId) {
+		el.dashboardList.innerHTML =
+			'<p class="empty-line">Select a source first.</p>';
+		return;
+	}
+	if (state.dashboards.length === 0) {
+		el.dashboardList.innerHTML =
+			'<p class="empty-line">Ask the agent to build your first dashboard.</p>';
+		return;
+	}
+
+	el.dashboardList.innerHTML = state.dashboards
+		.map(dashboard => {
+			const active = dashboard.id === state.selectedDashboardId;
+			return `
+				<div class="row ${active ? 'row-active' : ''}">
+					<button class="row-main" data-action="select-dashboard" data-id="${dashboard.id}" ${isBusy() ? 'disabled' : ''}>
+						<span class="row-title">${escapeHtml(dashboard.title)}</span>
+					</button>
+					<button class="danger text-button" data-action="delete-dashboard" data-id="${dashboard.id}">${confirmLabel(
+						`dashboard:${dashboard.id}`,
+						'Delete',
+					)}</button>
 				</div>
 			`;
 		})
@@ -618,6 +789,105 @@ const renderActivity = () => {
 	`;
 };
 
+const renderDashboardBanner = () => {
+	const messages = [];
+	if (state.status && !state.status.available) {
+		messages.push(
+			`<div class="notice">${escapeHtml(state.status.unavailableMessage)}. Dashboard creation and editing require an agent.</div>`,
+		);
+	}
+	if (state.error) {
+		messages.push(
+			`<div class="error"><span>${escapeHtml(state.error)}</span><button class="text-button" data-action="dismiss-error">Dismiss</button></div>`,
+		);
+	}
+	el.dashboardBanner.innerHTML = messages.join('');
+};
+
+const renderDashboardWorkspace = () => {
+	const draft = state.dashboardDraft;
+	const hasSource = Boolean(state.selectedSourceId);
+	const generating = state.busy === 'dashboard-generate';
+	const running = state.busy === 'dashboard-run';
+
+	el.dashboardNoSource.hidden = hasSource;
+	el.dashboardAgentForm.hidden = !hasSource;
+	el.dashboardInstruction.disabled =
+		!hasSource || state.status?.available === false || isBusy();
+	el.dashboardGenerateButton.disabled =
+		!hasSource || state.status?.available === false || isBusy();
+	el.dashboardAgentTitle.textContent = draft
+		? 'Edit with agent'
+		: 'Build with agent';
+	el.dashboardInstruction.placeholder = draft
+		? 'Ask the agent to add, remove, reorder, or change any part of this dashboard…'
+		: 'Build a dashboard for revenue, orders, and top customers…';
+	el.dashboardGenerateButton.textContent = generating
+		? draft
+			? 'Revising…'
+			: 'Building…'
+		: draft
+			? 'Revise dashboard'
+			: 'Build dashboard';
+	el.dashboardAgentStatus.innerHTML = generating
+		? 'Asking the agent <span class="elapsed">0s</span>'
+		: '';
+
+	el.dashboardPreview.hidden = !draft;
+	if (!draft) {
+		el.dashboardActivity.innerHTML = '';
+		return;
+	}
+
+	el.dashboardTitle.textContent = draft.title;
+	el.dashboardDescription.textContent = draft.description;
+	el.dashboardUnsaved.hidden = !state.dashboardDirty;
+	el.dashboardDiscard.hidden = !state.dashboardDirty;
+	el.dashboardSave.hidden = !state.dashboardDirty;
+	el.dashboardSave.textContent = state.selectedDashboardId
+		? 'Save changes'
+		: 'Save dashboard';
+	el.dashboardSave.disabled = isBusy();
+	el.dashboardMessage.hidden = !state.dashboardMessage;
+	el.dashboardMessage.textContent = state.dashboardMessage;
+
+	const range =
+		state.dashboardRange || relativeRange(draft.defaultRange?.days || 30);
+	if (el.dashboardRangeStart.value !== range.start)
+		el.dashboardRangeStart.value = range.start;
+	if (el.dashboardRangeEnd.value !== range.end)
+		el.dashboardRangeEnd.value = range.end;
+	el.dashboardRangeStart.disabled = isBusy();
+	el.dashboardRangeEnd.disabled = isBusy();
+	for (const button of document.querySelectorAll(
+		'[data-action="set-dashboard-range"]',
+	)) {
+		button.classList.toggle(
+			'is-active',
+			range.mode === 'relative' && Number(button.dataset.days) === range.days,
+		);
+		button.disabled = isBusy();
+	}
+	el.dashboardRun.disabled = isBusy();
+	el.dashboardRun.textContent = running ? 'Running…' : 'Run dashboard';
+	el.dashboardGrid.innerHTML = renderDashboardGrid(
+		draft,
+		state.dashboardResults,
+		running,
+	);
+
+	if (state.dashboardLogs.length === 0) {
+		el.dashboardActivity.innerHTML = '';
+	} else {
+		el.dashboardActivity.innerHTML = `
+			<details class="activity" ${state.status?.verbose ? 'open' : ''}>
+				<summary>Activity<span class="rail-count">${state.dashboardLogs.length}</span></summary>
+				<div class="timeline">${state.dashboardLogs.map(log => `<div>${escapeHtml(log)}</div>`).join('')}</div>
+			</details>
+		`;
+	}
+};
+
 const renderSectionStates = () => {
 	for (const [section, open] of Object.entries(state.openSections)) {
 		document
@@ -627,8 +897,10 @@ const renderSectionStates = () => {
 };
 
 const render = () => {
+	renderView();
 	renderTopbar();
 	renderSources();
+	renderDashboardList();
 	renderPresets();
 	renderHistory();
 	renderSchema();
@@ -638,6 +910,8 @@ const render = () => {
 	renderSqlPanel();
 	renderResults();
 	renderActivity();
+	renderDashboardBanner();
+	renderDashboardWorkspace();
 };
 
 const loadSources = async () => {
@@ -648,6 +922,10 @@ const loadSources = async () => {
 
 const selectSource = async sourceId => {
 	if (sourceId === state.selectedSourceId) return;
+	if (state.dashboardDirty) {
+		setState({error: 'Save or discard the current dashboard changes first'});
+		return;
+	}
 
 	setState({
 		selectedSourceId: sourceId,
@@ -657,6 +935,15 @@ const selectSource = async sourceId => {
 		schemaFilter: '',
 		expandedTables: new Set(),
 		presets: [],
+		dashboards: [],
+		selectedDashboardId: null,
+		dashboardDraft: null,
+		dashboardDirty: false,
+		dashboardResults: null,
+		dashboardRange: null,
+		dashboardMessage: '',
+		dashboardCreationPrompt: '',
+		dashboardLogs: [],
 		results: null,
 		pendingSql: '',
 		logs: [],
@@ -668,13 +955,19 @@ const selectSource = async sourceId => {
 	el.queryInput.value = '';
 
 	try {
-		const [schemaResult, presetResult] = await Promise.allSettled([
-			api(`/api/sources/${sourceId}/schema`),
-			api(`/api/sources/${sourceId}/presets`),
-		]);
+		const [schemaResult, presetResult, dashboardResult] =
+			await Promise.allSettled([
+				api(`/api/sources/${sourceId}/schema`),
+				api(`/api/sources/${sourceId}/presets`),
+				api(`/api/sources/${sourceId}/dashboards`),
+			]);
 
 		if (sourceId !== state.selectedSourceId) return;
 
+		const dashboards =
+			dashboardResult.status === 'fulfilled'
+				? dashboardResult.value.dashboards
+				: [];
 		setState({
 			schema:
 				schemaResult.status === 'fulfilled' ? schemaResult.value.schema : null,
@@ -682,10 +975,298 @@ const selectSource = async sourceId => {
 				schemaResult.status === 'rejected' ? schemaResult.reason.message : '',
 			presets:
 				presetResult.status === 'fulfilled' ? presetResult.value.presets : [],
+			dashboards,
 			schemaLoading: false,
 		});
+		if (state.view === 'dashboards' && dashboards.length > 0) {
+			await selectDashboard(dashboards[0].id);
+		}
 	} catch (error) {
 		setState({schemaLoading: false, error: error.message});
+	}
+};
+
+const selectDashboard = async dashboardId => {
+	if (state.dashboardDirty) {
+		setState({error: 'Save or discard the current dashboard changes first'});
+		return;
+	}
+	if (dashboardId === state.selectedDashboardId && state.dashboardDraft) return;
+	const dashboard = state.dashboards.find(item => item.id === dashboardId);
+	if (!dashboard) return;
+
+	el.dashboardInstruction.value = '';
+	setState({
+		selectedDashboardId: dashboard.id,
+		dashboardDraft: copyValue(dashboard),
+		dashboardDirty: false,
+		dashboardResults: null,
+		dashboardRange: relativeRange(dashboard.defaultRange?.days || 30),
+		dashboardMessage: '',
+		dashboardCreationPrompt: dashboard.prompt || '',
+		dashboardLogs: [],
+		error: '',
+	});
+	await executeDashboard();
+};
+
+const newDashboard = () => {
+	if (state.dashboardDirty) {
+		setState({error: 'Save or discard the current dashboard changes first'});
+		return;
+	}
+	el.dashboardInstruction.value = '';
+	setState({
+		selectedDashboardId: null,
+		dashboardDraft: null,
+		dashboardDirty: false,
+		dashboardResults: null,
+		dashboardRange: null,
+		dashboardMessage: '',
+		dashboardCreationPrompt: '',
+		dashboardLogs: [],
+		error: '',
+	});
+	el.dashboardInstruction.focus();
+};
+
+const switchView = async view => {
+	if (!['query', 'dashboards'].includes(view)) return;
+	setState({view, error: ''});
+	if (
+		view === 'dashboards' &&
+		!state.dashboardDraft &&
+		state.dashboards.length > 0
+	) {
+		await selectDashboard(state.dashboards[0].id);
+	}
+};
+
+const generateDashboardDraft = async event => {
+	event.preventDefault();
+	const instruction = el.dashboardInstruction.value.trim();
+	if (!instruction || !state.selectedSourceId || isBusy()) return;
+
+	const editing = Boolean(state.dashboardDraft);
+	startElapsed();
+	setState({
+		busy: 'dashboard-generate',
+		error: '',
+		dashboardLogs: [],
+		dashboardMessage: '',
+	});
+	try {
+		const result = await api(
+			`/api/sources/${state.selectedSourceId}/dashboards/generate`,
+			{
+				method: 'POST',
+				body: JSON.stringify({
+					instruction,
+					currentDashboard: state.dashboardDraft,
+				}),
+			},
+		);
+		if (result.error) {
+			setState({
+				error: result.error,
+				dashboardLogs: result.logs || [],
+				busy: null,
+			});
+			return;
+		}
+
+		el.dashboardInstruction.value = '';
+		setState({
+			dashboardDraft: result.dashboard,
+			dashboardDirty: true,
+			dashboardResults: null,
+			dashboardRange: relativeRange(result.dashboard.defaultRange.days),
+			dashboardMessage: result.message || '',
+			dashboardCreationPrompt: editing
+				? state.dashboardCreationPrompt
+				: instruction,
+			dashboardLogs: result.logs || [],
+			busy: null,
+		});
+		await executeDashboard();
+	} catch (error) {
+		setState({error: error.message, busy: null});
+	} finally {
+		stopElapsed();
+	}
+};
+
+async function executeDashboard() {
+	if (!state.dashboardDraft || !state.selectedSourceId || isBusy()) return;
+	let range = state.dashboardRange;
+	if (!range || range.mode === 'relative') {
+		range = relativeRange(
+			range?.days || state.dashboardDraft.defaultRange?.days || 30,
+		);
+	}
+	const start = new Date(range.start);
+	const end = new Date(range.end);
+	if (
+		!Number.isFinite(start.getTime()) ||
+		!Number.isFinite(end.getTime()) ||
+		start >= end
+	) {
+		setState({
+			error: 'Choose a valid time range with the start before the end',
+		});
+		return;
+	}
+
+	const previousLogs = state.dashboardLogs;
+	startElapsed();
+	setState({
+		busy: 'dashboard-run',
+		error: '',
+		dashboardResults: null,
+		dashboardRange: range,
+	});
+	try {
+		const result = await api(
+			`/api/sources/${state.selectedSourceId}/dashboards/run`,
+			{
+				method: 'POST',
+				body: JSON.stringify({
+					dashboard: state.dashboardDraft,
+					start: start.toISOString(),
+					end: end.toISOString(),
+				}),
+			},
+		);
+		const logs = [...previousLogs, ...(result.logs || [])];
+		if (result.error) {
+			setState({error: result.error, dashboardLogs: logs, busy: null});
+			return;
+		}
+		const repairedWidgets = state.dashboardDraft.widgets.map(
+			(widget, index) => {
+				const executed = result.results?.[index];
+				return !executed?.error && executed?.sql && executed.sql !== widget.sql
+					? {...widget, sql: executed.sql}
+					: widget;
+			},
+		);
+		const repaired = repairedWidgets.some(
+			(widget, index) => widget !== state.dashboardDraft.widgets[index],
+		);
+		setState({
+			dashboardDraft: repaired
+				? {...state.dashboardDraft, widgets: repairedWidgets}
+				: state.dashboardDraft,
+			dashboardDirty: state.dashboardDirty || repaired,
+			dashboardMessage: repaired
+				? 'The agent repaired one or more widget queries. Save to keep the repairs.'
+				: state.dashboardMessage,
+			dashboardResults: result.results || [],
+			dashboardLogs: logs,
+			busy: null,
+		});
+	} catch (error) {
+		setState({error: error.message, busy: null});
+	} finally {
+		stopElapsed();
+	}
+}
+
+const saveDashboardDraft = async () => {
+	if (!state.dashboardDraft || !state.dashboardDirty || isBusy()) return;
+	const existingId = state.selectedDashboardId;
+	const path = existingId
+		? `/api/sources/${state.selectedSourceId}/dashboards/${existingId}`
+		: `/api/sources/${state.selectedSourceId}/dashboards`;
+
+	setState({busy: 'dashboard-save', error: ''});
+	try {
+		const {dashboard} = await api(path, {
+			method: existingId ? 'PUT' : 'POST',
+			body: JSON.stringify({
+				dashboard: state.dashboardDraft,
+				prompt: state.dashboardCreationPrompt,
+			}),
+		});
+		const dashboards = existingId
+			? state.dashboards.map(item =>
+					item.id === existingId ? dashboard : item,
+				)
+			: [...state.dashboards, dashboard];
+		setState({
+			dashboards,
+			selectedDashboardId: dashboard.id,
+			dashboardDraft: copyValue(dashboard),
+			dashboardDirty: false,
+			dashboardMessage: 'Saved to local config.',
+			busy: null,
+		});
+	} catch (error) {
+		setState({error: error.message, busy: null});
+	}
+};
+
+const discardDashboardDraft = async () => {
+	if (!state.dashboardDirty || isBusy()) return;
+	if (!state.selectedDashboardId) {
+		el.dashboardInstruction.value = '';
+		setState({
+			dashboardDraft: null,
+			dashboardDirty: false,
+			dashboardResults: null,
+			dashboardRange: null,
+			dashboardMessage: '',
+			dashboardCreationPrompt: '',
+			dashboardLogs: [],
+			error: '',
+		});
+		return;
+	}
+	const saved = state.dashboards.find(
+		item => item.id === state.selectedDashboardId,
+	);
+	if (!saved) return;
+	setState({
+		dashboardDraft: copyValue(saved),
+		dashboardDirty: false,
+		dashboardResults: null,
+		dashboardRange: relativeRange(saved.defaultRange?.days || 30),
+		dashboardMessage: '',
+		dashboardLogs: [],
+	});
+	await executeDashboard();
+};
+
+const deleteDashboard = async dashboardId => {
+	if (state.dashboardDirty && dashboardId !== state.selectedDashboardId) {
+		setState({error: 'Save or discard the current dashboard changes first'});
+		return;
+	}
+	if (state.confirming !== `dashboard:${dashboardId}`) {
+		armConfirm(`dashboard:${dashboardId}`);
+		return;
+	}
+
+	setState({confirming: null});
+	try {
+		await api(
+			`/api/sources/${state.selectedSourceId}/dashboards/${dashboardId}`,
+			{method: 'DELETE'},
+		);
+		const dashboards = state.dashboards.filter(item => item.id !== dashboardId);
+		setState({
+			dashboards,
+			selectedDashboardId: null,
+			dashboardDraft: null,
+			dashboardDirty: false,
+			dashboardResults: null,
+			dashboardRange: null,
+			dashboardMessage: '',
+			dashboardLogs: [],
+		});
+		if (dashboards.length > 0) await selectDashboard(dashboards[0].id);
+	} catch (error) {
+		setState({error: error.message});
 	}
 };
 
@@ -715,6 +1296,10 @@ const addSource = async event => {
 };
 
 const deleteSource = async sourceId => {
+	if (state.dashboardDirty) {
+		setState({error: 'Save or discard the current dashboard changes first'});
+		return;
+	}
 	if (state.confirming !== `source:${sourceId}`) {
 		armConfirm(`source:${sourceId}`);
 		return;
@@ -729,6 +1314,14 @@ const deleteSource = async sourceId => {
 			selectedSourceId: null,
 			schema: null,
 			presets: [],
+			dashboards: [],
+			selectedDashboardId: null,
+			dashboardDraft: null,
+			dashboardDirty: false,
+			dashboardResults: null,
+			dashboardRange: null,
+			dashboardMessage: '',
+			dashboardLogs: [],
 			results: null,
 			pendingSql: '',
 			turns: [],
@@ -909,6 +1502,18 @@ const copyToClipboard = async (text, button) => {
 };
 
 const actions = {
+	'switch-view': button => switchView(button.dataset.view),
+	'new-dashboard': newDashboard,
+	'select-dashboard': button => selectDashboard(button.dataset.id),
+	'delete-dashboard': button => deleteDashboard(button.dataset.id),
+	'save-dashboard': saveDashboardDraft,
+	'discard-dashboard': discardDashboardDraft,
+	'run-dashboard': executeDashboard,
+	'set-dashboard-range': async button => {
+		const days = Number(button.dataset.days);
+		setState({dashboardRange: relativeRange(days)});
+		await executeDashboard();
+	},
 	'toggle-section': button => {
 		const section = button.dataset.section;
 		setState({
@@ -982,6 +1587,7 @@ const submitOnMeta = (event, submit) => {
 };
 
 el.queryForm.addEventListener('submit', generateSql);
+el.dashboardAgentForm.addEventListener('submit', generateDashboardDraft);
 el.queryInput.addEventListener('keydown', event =>
 	submitOnMeta(event, () => el.queryForm.requestSubmit()),
 );
@@ -999,6 +1605,29 @@ el.schemaFilter.addEventListener('input', event => {
 });
 el.sourceForm.addEventListener('submit', addSource);
 el.presetForm.addEventListener('submit', savePreset);
+el.dashboardInstruction.addEventListener('keydown', event =>
+	submitOnMeta(event, () => el.dashboardAgentForm.requestSubmit()),
+);
+el.dashboardRangeStart.addEventListener('input', event => {
+	setState({
+		dashboardRange: {
+			...(state.dashboardRange || {}),
+			mode: 'custom',
+			start: event.target.value,
+			end: el.dashboardRangeEnd.value,
+		},
+	});
+});
+el.dashboardRangeEnd.addEventListener('input', event => {
+	setState({
+		dashboardRange: {
+			...(state.dashboardRange || {}),
+			mode: 'custom',
+			start: el.dashboardRangeStart.value,
+			end: event.target.value,
+		},
+	});
+});
 
 const init = async () => {
 	render();

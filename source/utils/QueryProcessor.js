@@ -1,6 +1,7 @@
 import {createConnection} from './DbConnector.js';
 import {createAIClient} from './AIClient.js';
 import {isAbortError, throwIfAborted} from './abort.js';
+import {isReadOnlyQuery} from './SqlSafety.js';
 
 async function getSchema(conn, dbType) {
 	if (dbType === 'postgres' || dbType === 'postgresql') {
@@ -200,6 +201,7 @@ export async function executeQuery(
 	aiConfig,
 	onLog,
 	abortSignal,
+	parameters = [],
 ) {
 	const redactDatabaseSecrets = value =>
 		redactConnectionDetails(value, connectionString);
@@ -218,6 +220,7 @@ export async function executeQuery(
 	verboseLog(`Connection target: ${redactConnectionString(connectionString)}`);
 	verboseLog(`Initial SQL:\n${sqlQuery}`);
 	verboseLog(() => `Schema:\n${formatVerboseValue(schema)}`);
+	const requiredParameters = new Set(String(sqlQuery).match(/\$\d+\b/g) || []);
 
 	if (!isReadOnlyQuery(sqlQuery)) {
 		verboseLog('Read-only validation rejected the initial SQL');
@@ -281,6 +284,21 @@ export async function executeQuery(
 						data: null,
 					};
 				}
+
+				const repairedParameters = new Set(
+					String(currentSql).match(/\$\d+\b/g) || [],
+				);
+				if (
+					[...requiredParameters].some(
+						parameter => !repairedParameters.has(parameter),
+					)
+				) {
+					return {
+						error: 'Repaired query must preserve all positional parameters',
+						sql: currentSql,
+						data: null,
+					};
+				}
 			}
 
 			conn = await createConnection(connectionString);
@@ -289,7 +307,7 @@ export async function executeQuery(
 
 			log('Executing query...');
 			verboseLog(`Executing SQL:\n${currentSql}`);
-			const data = await conn.query(currentSql, {abortSignal});
+			const data = await conn.query(currentSql, {abortSignal, parameters});
 			throwIfAborted(abortSignal, 'Query execution cancelled');
 			const rows = [...data];
 			log(`Query returned ${rows.length} rows`);
@@ -336,22 +354,6 @@ export async function executeQuery(
 	}
 
 	return {error: 'Unexpected error', sql: currentSql, data: null};
-}
-
-const MUTATION_KEYWORD_RE =
-	/\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|GRANT|REVOKE|EXEC|EXECUTE|CALL|PRAGMA|ATTACH|DETACH|VACUUM)\b/i;
-
-function isReadOnlyQuery(sql) {
-	const normalized = sql.toUpperCase().replace(/\s+/g, ' ').trim();
-
-	if (sql.includes(';')) {
-		const parts = sql.split(';').filter(p => p.trim());
-		if (parts.length > 1) return false;
-	}
-
-	if (MUTATION_KEYWORD_RE.test(sql)) return false;
-
-	return normalized.startsWith('SELECT') || normalized.startsWith('WITH');
 }
 
 function redactConnectionString(connectionString) {
