@@ -1,0 +1,10 @@
+{
+	"useTabs": true,
+	"singleQuote": true,
+	"bracketSpacing": false,
+	"trailingComma": "all",
+	"arrowParens": "avoid",
+	"printWidth": 80,
+	"sortPackageJson": false,
+	"ignorePatterns": ["dist", ".claude", ".openinsight", "dev", "readme.md"]
+}

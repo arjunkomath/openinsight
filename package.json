@@ -42,8 +42,8 @@
 		"start:web": "bun source/cli.js --web",
 		"dev": "bun --watch source/cli.js",
 		"dev:web": "bun --watch source/cli.js --web",
-		"format": "prettier --write .",
-		"test": "prettier --check . && bun test --parallel"
+		"format": "oxfmt",
+		"test": "oxfmt --check && bun test --parallel"
 	},
 	"files": [
 		"bin"
@@ -54,15 +54,8 @@
 		"@opentui/react": "^0.5.6",
 		"@types/react": "^19.2.18",
 		"ai": "^7.0.76",
-		"prettier": "^3.9.6",
+		"oxfmt": "^0.66.0",
 		"react": "^19.2.8",
 		"zod": "^4.4.3"
-	},
-	"prettier": {
-		"useTabs": true,
-		"singleQuote": true,
-		"bracketSpacing": false,
-		"trailingComma": "all",
-		"arrowParens": "avoid"
 	}
 }
