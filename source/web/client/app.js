@@ -524,7 +524,7 @@ const renderDashboardList = () => {
 					<button class="row-main" data-action="select-dashboard" data-id="${dashboard.id}" ${isBusy() ? 'disabled' : ''}>
 						<span class="row-title">${escapeHtml(dashboard.title)}</span>
 					</button>
-					<button class="danger text-button" data-action="delete-dashboard" data-id="${dashboard.id}">${confirmLabel(
+					<button class="danger text-button" data-action="delete-dashboard" data-id="${dashboard.id}" ${isBusy() ? 'disabled' : ''}>${confirmLabel(
 						`dashboard:${dashboard.id}`,
 						'Delete',
 					)}</button>
@@ -1066,6 +1066,7 @@ const selectDashboard = async dashboardId => {
 };
 
 const newDashboard = () => {
+	if (isBusy()) return;
 	if (state.dashboardDirty) {
 		setState({error: 'Save or discard the current dashboard changes first'});
 		return;
@@ -1336,6 +1337,7 @@ const discardDashboardDraft = async () => {
 };
 
 const deleteDashboard = async dashboardId => {
+	if (isBusy()) return;
 	if (state.dashboardDirty && dashboardId !== state.selectedDashboardId) {
 		setState({error: 'Save or discard the current dashboard changes first'});
 		return;
@@ -1345,7 +1347,7 @@ const deleteDashboard = async dashboardId => {
 		return;
 	}
 
-	setState({confirming: null});
+	setState({confirming: null, busy: 'dashboard-delete', error: ''});
 	try {
 		await api(
 			`/api/sources/${state.selectedSourceId}/dashboards/${dashboardId}`,
@@ -1361,10 +1363,11 @@ const deleteDashboard = async dashboardId => {
 			dashboardRange: null,
 			dashboardMessage: '',
 			dashboardLogs: [],
+			busy: null,
 		});
 		if (dashboards.length > 0) await selectDashboard(dashboards[0].id);
 	} catch (error) {
-		setState({error: error.message});
+		setState({error: error.message, busy: null});
 	}
 };
 

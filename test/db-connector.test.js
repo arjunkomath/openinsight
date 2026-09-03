@@ -1,6 +1,7 @@
 import {test, expect} from 'bun:test';
 import {
 	createConnection,
+	prepareDriverQuery,
 	testConnection,
 	validateConnectionString,
 } from '../source/utils/DbConnector.js';
@@ -52,6 +53,27 @@ test('testConnection returns failure instead of rejecting on connect errors', as
 	expect(result.success).toBe(false);
 	expect(typeof result.error).toBe('string');
 	expect(result.error.length).toBeGreaterThan(0);
+});
+
+test('prepareDriverQuery translates and reorders MySQL parameters', () => {
+	expect(
+		prepareDriverQuery(
+			'SELECT * FROM events WHERE created_at < $2 AND created_at >= $1 OR updated_at >= $1',
+			['start', 'end'],
+			'mysql',
+		),
+	).toEqual({
+		sql: 'SELECT * FROM events WHERE created_at < ? AND created_at >= ? OR updated_at >= ?',
+		parameters: ['end', 'start', 'start'],
+	});
+});
+
+test('prepareDriverQuery leaves PostgreSQL parameters unchanged', () => {
+	const query = 'SELECT * FROM events WHERE created_at >= $1';
+	expect(prepareDriverQuery(query, ['start'], 'postgres')).toEqual({
+		sql: query,
+		parameters: ['start'],
+	});
 });
 
 test('sqlite connection can query via Bun.SQL', async () => {

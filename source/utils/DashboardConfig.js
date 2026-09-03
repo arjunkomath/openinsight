@@ -8,6 +8,9 @@ const dashboardSqlSchema = z
 	.refine(isReadOnlyQuery, 'Only SELECT and WITH queries are allowed')
 	.refine(sql => /\$1\b/.test(sql) && /\$2\b/.test(sql), {
 		message: 'Dashboard queries must use $1 for the start and $2 for the end',
+	})
+	.refine(sql => !/\$(?!(?:1|2)\b)\d+\b/.test(sql), {
+		message: 'Dashboard queries can only use $1 and $2 parameters',
 	});
 
 const widgetBase = {
