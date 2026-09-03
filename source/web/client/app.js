@@ -1,4 +1,8 @@
-import {renderDashboardGrid} from './dashboard.js';
+import {
+	destroyDashboardCharts,
+	mountDashboardCharts,
+	renderDashboardGrid,
+} from './dashboard.js';
 
 const MAX_RENDERED_ROWS = 500;
 
@@ -883,7 +887,11 @@ const renderDashboardWorkspace = () => {
 	}
 
 	el.dashboardPreview.hidden = !draft;
-	if (!draft) return;
+	if (!draft) {
+		destroyDashboardCharts();
+		el.dashboardGrid.innerHTML = '';
+		return;
+	}
 
 	el.dashboardTitle.textContent = draft.title;
 	el.dashboardDescription.textContent = draft.description;
@@ -921,6 +929,7 @@ const renderDashboardWorkspace = () => {
 		state.dashboardResults,
 		running,
 	);
+	mountDashboardCharts(el.dashboardGrid, draft, state.dashboardResults);
 };
 
 const renderSectionStates = () => {

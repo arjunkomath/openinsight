@@ -1,4 +1,5 @@
 import process from 'node:process';
+import chartJs from '../../node_modules/chart.js/dist/chart.umd.min.js' with {type: 'text'};
 import appJs from './client/app.js' with {type: 'text'};
 import dashboardJs from './client/dashboard.js' with {type: 'text'};
 import faviconSvg from './client/favicon.svg' with {type: 'text'};
@@ -41,6 +42,10 @@ const assets = {
 	'/': {body: indexHtml, contentType: 'text/html; charset=utf-8'},
 	'/index.html': {body: indexHtml, contentType: 'text/html; charset=utf-8'},
 	'/app.js': {body: appJs, contentType: 'text/javascript; charset=utf-8'},
+	'/chart.js': {
+		body: chartJs.replace(/\n\/\/# sourceMappingURL=.*$/, ''),
+		contentType: 'text/javascript; charset=utf-8',
+	},
 	'/dashboard.js': {
 		body: dashboardJs,
 		contentType: 'text/javascript; charset=utf-8',

@@ -1,10 +1,3 @@
-const CHART_COLORS = [
-	'var(--chart-1)',
-	'var(--chart-2)',
-	'var(--chart-3)',
-	'var(--chart-4)',
-];
-
 const escapeHtml = value =>
 	String(value ?? '')
 		.replaceAll('&', '&amp;')
@@ -32,11 +25,6 @@ const formatCell = value => {
 	return escapeHtml(value);
 };
 
-const shortLabel = value => {
-	const label = String(value ?? '');
-	return label.length > 16 ? `${label.slice(0, 15)}…` : label;
-};
-
 const widgetError = message =>
 	`<div class="widget-state danger-text">${escapeHtml(message)}</div>`;
 
@@ -60,182 +48,195 @@ const renderTable = rows => {
 	`;
 };
 
-const renderCartesian = (widget, rows) => {
+const createChartModel = (widget, rows) => {
 	if (rows.length === 0) return '<div class="widget-state">No data</div>';
+	if (widget.type === 'pie') {
+		const missing = [widget.label, widget.value].filter(
+			column => !Object.hasOwn(rows[0], column),
+		);
+		if (missing.length > 0) {
+			return {error: `Missing result columns: ${missing.join(', ')}`};
+		}
+
+		const values = rows
+			.map(row => ({
+				label: row[widget.label],
+				value: toNumber(row[widget.value]),
+			}))
+			.filter(item => item.value !== null && item.value > 0)
+			.slice(0, 8);
+		if (values.length === 0) {
+			return {error: 'Pie chart values must be positive numbers'};
+		}
+
+		return {
+			type: 'pie',
+			labels: values.map(item => String(item.label ?? '')),
+			datasets: [{label: widget.value, data: values.map(item => item.value)}],
+			note:
+				rows.length > values.length
+					? `Showing first ${values.length} categories`
+					: '',
+		};
+	}
+
 	const missing = [widget.x, ...widget.y].filter(
 		column => !Object.hasOwn(rows[0], column),
 	);
 	if (missing.length > 0) {
-		return widgetError(
-			`Missing result ${missing.length === 1 ? 'column' : 'columns'}: ${missing.join(', ')}`,
-		);
+		return {
+			error: `Missing result ${missing.length === 1 ? 'column' : 'columns'}: ${missing.join(', ')}`,
+		};
 	}
 
 	const visibleRows = rows.slice(0, widget.type === 'bar' ? 24 : 80);
-	const series = widget.y.map(column => ({
-		column,
-		values: visibleRows.map(row => toNumber(row[column])),
+	const datasets = widget.y.map(column => ({
+		label: column,
+		data: visibleRows.map(row => toNumber(row[column])),
 	}));
-	if (series.some(item => item.values.some(value => value === null))) {
-		return widgetError('Chart measure columns must contain numeric values');
+	if (datasets.some(dataset => dataset.data.some(value => value === null))) {
+		return {error: 'Chart measure columns must contain numeric values'};
 	}
 
-	const width = 640;
-	const height = 280;
-	const plot = {left: 58, right: 18, top: 18, bottom: 52};
-	const plotWidth = width - plot.left - plot.right;
-	const plotHeight = height - plot.top - plot.bottom;
-	const values = series.flatMap(item => item.values);
-	let min =
-		widget.type === 'bar' ? Math.min(0, ...values) : Math.min(...values);
-	let max =
-		widget.type === 'bar' ? Math.max(0, ...values) : Math.max(...values);
-	if (min === max) {
-		min -= Math.abs(min * 0.1) || 1;
-		max += Math.abs(max * 0.1) || 1;
-	} else if (widget.type === 'line') {
-		const padding = (max - min) * 0.08;
-		min -= padding;
-		max += padding;
-	}
-	const scaleY = value =>
-		plot.top + plotHeight - ((value - min) / (max - min)) * plotHeight;
-	const scaleX = index =>
-		plot.left +
-		(visibleRows.length === 1
-			? plotWidth / 2
-			: (index / (visibleRows.length - 1)) * plotWidth);
-	const tickIndexes = Array.from(
-		new Set(
-			Array.from({length: Math.min(6, visibleRows.length)}, (_, index) =>
-				Math.round(
-					(index / Math.max(Math.min(6, visibleRows.length) - 1, 1)) *
-						(visibleRows.length - 1),
-				),
-			),
-		),
-	);
+	return {
+		type: widget.type,
+		labels: visibleRows.map(row => String(row[widget.x] ?? '')),
+		datasets,
+		note:
+			rows.length > visibleRows.length
+				? `Showing first ${visibleRows.length} of ${rows.length} points`
+				: '',
+	};
+};
 
-	let marks;
-	if (widget.type === 'line') {
-		marks = series
-			.map((item, seriesIndex) => {
-				const points = item.values
-					.map((value, index) => `${scaleX(index)},${scaleY(value)}`)
-					.join(' ');
-				const dots = item.values
-					.map(
-						(value, index) =>
-							`<circle cx="${scaleX(index)}" cy="${scaleY(value)}" r="3" fill="${CHART_COLORS[seriesIndex]}"><title>${escapeHtml(visibleRows[index][widget.x])}: ${escapeHtml(item.column)} ${formatNumber(value)}</title></circle>`,
-					)
-					.join('');
-				return `<polyline points="${points}" fill="none" stroke="${CHART_COLORS[seriesIndex]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round" />${dots}`;
-			})
-			.join('');
-	} else {
-		const groupWidth = plotWidth / visibleRows.length;
-		const barWidth = Math.max(
-			2,
-			Math.min(28, (groupWidth * 0.72) / series.length),
-		);
-		const zeroY = scaleY(0);
-		marks = visibleRows
-			.flatMap((row, rowIndex) =>
-				series.map((item, seriesIndex) => {
-					const value = item.values[rowIndex];
-					const y = scaleY(value);
-					const x =
-						plot.left +
-						rowIndex * groupWidth +
-						(groupWidth - barWidth * series.length) / 2 +
-						seriesIndex * barWidth;
-					return `<rect x="${x}" y="${Math.min(y, zeroY)}" width="${barWidth}" height="${Math.max(Math.abs(zeroY - y), 1)}" fill="${CHART_COLORS[seriesIndex]}" rx="1"><title>${escapeHtml(row[widget.x])}: ${escapeHtml(item.column)} ${formatNumber(value)}</title></rect>`;
-				}),
-			)
-			.join('');
-	}
+const renderChart = (widget, rows, index) => {
+	const model = createChartModel(widget, rows);
+	if (typeof model === 'string') return model;
+	if (model.error) return widgetError(model.error);
 
+	const label = [widget.title, widget.subtitle].filter(Boolean).join('. ');
 	return `
 		<div class="chart-wrap">
-			<svg class="chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(widget.title)}">
-				<line class="chart-axis" x1="${plot.left}" y1="${plot.top}" x2="${plot.left}" y2="${plot.top + plotHeight}" />
-				<line class="chart-axis" x1="${plot.left}" y1="${plot.top + plotHeight}" x2="${width - plot.right}" y2="${plot.top + plotHeight}" />
-				<text class="chart-label" x="${plot.left - 8}" y="${plot.top + 4}" text-anchor="end">${escapeHtml(formatNumber(max))}</text>
-				<text class="chart-label" x="${plot.left - 8}" y="${plot.top + plotHeight}" text-anchor="end">${escapeHtml(formatNumber(min))}</text>
-				${marks}
-				${tickIndexes
-					.map(
-						index =>
-							`<text class="chart-label" x="${scaleX(index)}" y="${height - 25}" text-anchor="middle">${escapeHtml(shortLabel(visibleRows[index][widget.x]))}</text>`,
-					)
-					.join('')}
-			</svg>
+			<div class="chart-container">
+				<canvas data-dashboard-chart="${index}" role="img" aria-label="${escapeHtml(label)}">${escapeHtml(label)}</canvas>
+			</div>
 		</div>
-		<div class="chart-legend">${series
-			.map(
-				(item, index) =>
-					`<span><i style="background:${CHART_COLORS[index]}"></i>${escapeHtml(item.column)}</span>`,
-			)
-			.join('')}</div>
-		${rows.length > visibleRows.length ? `<div class="chart-note">Showing first ${visibleRows.length} of ${rows.length} points</div>` : ''}
+		${model.note ? `<div class="chart-note">${escapeHtml(model.note)}</div>` : ''}
 	`;
 };
 
-const polarPoint = (centerX, centerY, radius, angle) => ({
-	x: centerX + radius * Math.cos(angle),
-	y: centerY + radius * Math.sin(angle),
-});
+let chartInstances = [];
 
-const renderPie = (widget, rows) => {
-	if (rows.length === 0) return '<div class="widget-state">No data</div>';
-	const missing = [widget.label, widget.value].filter(
-		column => !Object.hasOwn(rows[0], column),
+export function destroyDashboardCharts() {
+	for (const chart of chartInstances) chart.destroy();
+	chartInstances = [];
+}
+
+const cssValue = (styles, property, fallback) =>
+	styles.getPropertyValue(property).trim() || fallback;
+
+export function mountDashboardCharts(container, dashboard, results) {
+	destroyDashboardCharts();
+	if (!container || !globalThis.Chart) return;
+
+	const styles = getComputedStyle(document.documentElement);
+	const colors = [1, 2, 3, 4].map(index =>
+		cssValue(styles, `--chart-${index}`, '#2563eb'),
 	);
-	if (missing.length > 0)
-		return widgetError(`Missing result columns: ${missing.join(', ')}`);
+	const theme = {
+		muted: cssValue(styles, '--muted', '#6b7280'),
+		border: cssValue(styles, '--border', '#e5e7eb'),
+		surface: cssValue(styles, '--surface', '#ffffff'),
+		font: cssValue(styles, '--mono', 'monospace'),
+	};
 
-	const values = rows
-		.map(row => ({
-			label: row[widget.label],
-			value: toNumber(row[widget.value]),
-		}))
-		.filter(item => item.value !== null && item.value > 0)
-		.slice(0, 8);
-	if (values.length === 0)
-		return widgetError('Pie chart values must be positive numbers');
-	const total = values.reduce((sum, item) => sum + item.value, 0);
-	let angle = -Math.PI / 2;
-	const center = {x: 155, y: 130, radius: 92};
-	const slices = values
-		.map((item, index) => {
-			const nextAngle = angle + (item.value / total) * Math.PI * 2;
-			if (values.length === 1) {
-				angle = nextAngle;
-				return `<circle cx="${center.x}" cy="${center.y}" r="${center.radius}" fill="${CHART_COLORS[index % CHART_COLORS.length]}"><title>${escapeHtml(item.label)}: ${formatNumber(item.value)}</title></circle>`;
-			}
-			const start = polarPoint(center.x, center.y, center.radius, angle);
-			const end = polarPoint(center.x, center.y, center.radius, nextAngle);
-			const largeArc = nextAngle - angle > Math.PI ? 1 : 0;
-			const path = `M ${center.x} ${center.y} L ${start.x} ${start.y} A ${center.radius} ${center.radius} 0 ${largeArc} 1 ${end.x} ${end.y} Z`;
-			angle = nextAngle;
-			return `<path d="${path}" fill="${CHART_COLORS[index % CHART_COLORS.length]}"><title>${escapeHtml(item.label)}: ${formatNumber(item.value)}</title></path>`;
-		})
-		.join('');
+	for (const [index, widget] of dashboard.widgets.entries()) {
+		const result = results?.[index];
+		if (widget.type === 'table' || !result || result.error) continue;
 
-	return `
-		<div class="pie-layout">
-			<svg class="pie-chart" viewBox="0 0 310 260" role="img" aria-label="${escapeHtml(widget.title)}">${slices}</svg>
-			<div class="pie-legend">${values
-				.map(
-					(item, index) => `
-						<div><i style="background:${CHART_COLORS[index % CHART_COLORS.length]}"></i><span>${escapeHtml(item.label)}</span><strong>${escapeHtml(formatNumber(item.value))}</strong></div>
-					`,
-				)
-				.join('')}</div>
-		</div>
-		${rows.length > values.length ? `<div class="chart-note">Showing first ${values.length} categories</div>` : ''}
-	`;
-};
+		const model = createChartModel(widget, result.data || []);
+		if (typeof model === 'string' || model.error) continue;
+		const canvas = container.querySelector(`[data-dashboard-chart="${index}"]`);
+		if (!canvas) continue;
+
+		const isPie = model.type === 'pie';
+		const datasets = model.datasets.map((dataset, datasetIndex) => ({
+			...dataset,
+			backgroundColor: isPie
+				? model.labels.map(
+						(_, colorIndex) => colors[colorIndex % colors.length],
+					)
+				: colors[datasetIndex % colors.length],
+			borderColor: isPie ? theme.surface : colors[datasetIndex % colors.length],
+			borderWidth: isPie ? 2 : widget.type === 'line' ? 2.5 : 1,
+			fill: false,
+			pointBackgroundColor: colors[datasetIndex % colors.length],
+			pointRadius: widget.type === 'line' ? 3 : 0,
+			pointHoverRadius: widget.type === 'line' ? 5 : 0,
+			tension: widget.type === 'line' ? 0.25 : 0,
+		}));
+
+		chartInstances.push(
+			new globalThis.Chart(canvas, {
+				type: model.type,
+				data: {labels: model.labels, datasets},
+				options: {
+					responsive: true,
+					maintainAspectRatio: false,
+					animation: false,
+					interaction: {mode: 'index', intersect: false},
+					plugins: {
+						legend: {
+							position: 'bottom',
+							labels: {
+								color: theme.muted,
+								boxWidth: 10,
+								boxHeight: 10,
+								padding: 16,
+								font: {family: theme.font, size: 11},
+							},
+						},
+						tooltip: {
+							callbacks: {
+								label: context => {
+									const value = isPie ? context.parsed : context.parsed.y;
+									return `${context.dataset.label}: ${formatNumber(value)}`;
+								},
+							},
+						},
+					},
+					...(isPie
+						? {}
+						: {
+								scales: {
+									x: {
+										grid: {display: false},
+										border: {color: theme.border},
+										ticks: {
+											color: theme.muted,
+											font: {family: theme.font, size: 10},
+											maxRotation: 0,
+											autoSkip: true,
+											maxTicksLimit: 8,
+										},
+									},
+									y: {
+										beginAtZero: widget.type === 'bar',
+										grid: {color: theme.border},
+										border: {display: false},
+										ticks: {
+											color: theme.muted,
+											font: {family: theme.font, size: 10},
+											callback: value => formatNumber(value),
+										},
+									},
+								},
+							}),
+				},
+			}),
+		);
+	}
+}
 
 export function renderDashboardGrid(dashboard, results, busy) {
 	return dashboard.widgets
@@ -247,9 +248,7 @@ export function renderDashboardGrid(dashboard, results, busy) {
 				body = '<div class="widget-state">Run the dashboard to load data</div>';
 			else if (result.error) body = widgetError(result.error);
 			else if (widget.type === 'table') body = renderTable(result.data || []);
-			else if (widget.type === 'pie')
-				body = renderPie(widget, result.data || []);
-			else body = renderCartesian(widget, result.data || []);
+			else body = renderChart(widget, result.data || [], index);
 
 			return `
 				<section class="dashboard-widget dashboard-widget-${widget.width}">

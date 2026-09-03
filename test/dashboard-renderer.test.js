@@ -42,3 +42,50 @@ test('renderDashboardGrid supports saved widgets without subtitles', () => {
 	expect(html).toContain('<h3>Legacy widget</h3>');
 	expect(html).not.toContain('widget-subtitle');
 });
+
+test('renderDashboardGrid creates Chart.js canvases for chart widgets', () => {
+	const html = renderDashboardGrid(
+		{
+			widgets: [
+				{
+					type: 'line',
+					title: 'Revenue <trend>',
+					subtitle: 'Gross & net revenue',
+					width: 'full',
+					x: 'month',
+					y: ['revenue'],
+				},
+			],
+		},
+		[{error: null, data: [{month: 'Jan', revenue: 42}]}],
+		false,
+	);
+
+	expect(html).toContain('canvas data-dashboard-chart="0"');
+	expect(html).toContain(
+		'aria-label="Revenue &lt;trend&gt;. Gross &amp; net revenue"',
+	);
+	expect(html).not.toContain('<svg');
+});
+
+test('renderDashboardGrid rejects non-numeric Chart.js datasets', () => {
+	const html = renderDashboardGrid(
+		{
+			widgets: [
+				{
+					type: 'bar',
+					title: 'Revenue',
+					subtitle: 'Revenue grouped by month',
+					width: 'half',
+					x: 'month',
+					y: ['revenue'],
+				},
+			],
+		},
+		[{error: null, data: [{month: 'Jan', revenue: 'not a number'}]}],
+		false,
+	);
+
+	expect(html).toContain('Chart measure columns must contain numeric values');
+	expect(html).not.toContain('<canvas');
+});
