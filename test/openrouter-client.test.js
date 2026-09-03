@@ -90,6 +90,7 @@ test('OpenRouter client generates complete editable dashboard configs', async ()
 			{
 				type: 'bar',
 				title: 'Orders by status',
+				subtitle: 'Order count grouped by current status',
 				width: 'full',
 				sql: 'SELECT status, COUNT(*) AS orders FROM orders WHERE created_at >= $1 AND created_at < $2 GROUP BY status LIMIT 1000',
 				x: 'status',
@@ -118,5 +119,6 @@ test('OpenRouter client generates complete editable dashboard configs', async ()
 		error: null,
 	});
 	expect(request.system).toContain('$1 as the inclusive start time');
+	expect(request.system).toContain('concise subtitle');
 	expect(request.messages[0].content).toContain('Old title');
 });

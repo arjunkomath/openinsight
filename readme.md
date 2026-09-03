@@ -20,10 +20,11 @@ dashboard or revise the selected dashboard in natural language. The agent owns
 the widget queries, visualization types, column mappings, order, and layout;
 changes remain a draft until you save them.
 
-Dashboards support tables and line, bar, and pie charts. Every widget uses the
-dashboard's shared time range, which can be rerun with a relative or custom
-range. Saved dashboard configurations are scoped to their data source and stored
-in the project's `.openinsight/config.json`; query results are not persisted.
+Dashboards support tables and line, bar, and pie charts. Every widget has an
+agent-authored title and subtitle and uses the dashboard's shared time range,
+which can be rerun with a relative or custom range. Saved dashboard
+configurations are scoped to their data source and stored in the project's
+`.openinsight/config.json`; query results are not persisted.
 
 ## Quick Start
 

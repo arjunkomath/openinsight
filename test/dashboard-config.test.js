@@ -9,6 +9,7 @@ const dashboard = {
 		{
 			type: 'line',
 			title: 'Daily revenue',
+			subtitle: 'Gross revenue grouped by day',
 			width: 'full',
 			sql: 'SELECT day, revenue FROM sales WHERE created_at >= $1 AND created_at < $2 LIMIT 1000',
 			x: 'day',
@@ -23,6 +24,15 @@ test('parseDashboardConfig accepts agent-authored time-aware dashboards', () => 
 	expect(result.dashboard).toEqual(dashboard);
 });
 
+test('parseDashboardConfig keeps dashboards saved before subtitles compatible', () => {
+	const legacyWidget = {...dashboard.widgets[0]};
+	delete legacyWidget.subtitle;
+	const result = parseDashboardConfig({...dashboard, widgets: [legacyWidget]});
+
+	expect(result.error).toBeNull();
+	expect(result.dashboard.widgets[0].subtitle).toBe('');
+});
+
 test('parseDashboardConfig rejects mutation queries', () => {
 	const result = parseDashboardConfig({
 		...dashboard,
@@ -30,6 +40,7 @@ test('parseDashboardConfig rejects mutation queries', () => {
 			{
 				type: 'table',
 				title: 'Unsafe',
+				subtitle: 'Attempts to mutate sales',
 				width: 'half',
 				sql: 'DELETE FROM sales WHERE created_at >= $1 AND created_at < $2',
 			},
@@ -46,6 +57,7 @@ test('parseDashboardConfig requires both time-range parameters', () => {
 			{
 				type: 'table',
 				title: 'Missing end',
+				subtitle: 'Sales after the range start',
 				width: 'half',
 				sql: 'SELECT * FROM sales WHERE created_at >= $1 LIMIT 1000',
 			},

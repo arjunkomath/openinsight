@@ -214,7 +214,7 @@ async function generateDashboard({
 		`[AI Request] ${currentDashboard ? 'Revising' : 'Building'} dashboard: "${instruction}"`,
 	);
 	const prompt = `You are a dashboard design and SQL expert. Build a complete dashboard configuration for the supplied database schema and ${databaseType} dialect.
-Return between 1 and 8 useful widgets. Supported widgets are table, line, bar, and pie. Choose clear titles, exact result-column mappings, an effective order, and half or full width.
+Return between 1 and 8 useful widgets. Supported widgets are table, line, bar, and pie. Give every widget a clear title and a concise subtitle that explains its metric or grouping. Choose exact result-column mappings, an effective order, and half or full width.
 Every SQL query must be a single read-only SELECT or WITH query, use only the supplied schema, and include a sensible LIMIT no greater than 1000.
 Every widget must honor the dashboard time range. Use positional parameter $1 as the inclusive start time and $2 as the exclusive end time. They are bound as ISO-8601 UTC strings; cast them when required by the database dialect. Never put literal dates in the SQL.
 For line and bar charts, alias the dimension to the configured x field and numeric measures to the configured y fields. For pie charts, alias the category and numeric measure to the configured label and value fields.

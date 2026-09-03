@@ -98,6 +98,7 @@ test('Claude client generates a complete dashboard config', async () => {
 			{
 				type: 'line',
 				title: 'Daily signups',
+				subtitle: 'New user accounts grouped by day',
 				width: 'full',
 				sql: 'SELECT day, signups FROM users WHERE created_at >= $1 AND created_at < $2 LIMIT 1000',
 				x: 'day',
@@ -138,6 +139,7 @@ test('Claude client generates a complete dashboard config', async () => {
 	const stdin = await invocation.options.stdin.text();
 	expect(stdin).toContain('Show signups');
 	expect(stdin).toContain('$1 as the inclusive start time');
+	expect(stdin).toContain('concise subtitle');
 });
 
 test('Claude client emits full subprocess diagnostics only in verbose mode', async () => {

@@ -12,6 +12,7 @@ const dashboardSqlSchema = z
 
 const widgetBase = {
 	title: z.string().trim().min(1).max(120),
+	subtitle: z.string().trim().max(240),
 	sql: dashboardSqlSchema,
 	width: z.enum(['half', 'full']),
 };
@@ -58,7 +59,20 @@ export const dashboardAgentJsonSchema = JSON.stringify(
 );
 
 export function parseDashboardConfig(value) {
-	const parsed = dashboardConfigSchema.safeParse(value);
+	const normalized =
+		value && typeof value === 'object' && Array.isArray(value.widgets)
+			? {
+					...value,
+					widgets: value.widgets.map(widget =>
+						widget &&
+						typeof widget === 'object' &&
+						!Object.hasOwn(widget, 'subtitle')
+							? {...widget, subtitle: ''}
+							: widget,
+					),
+				}
+			: value;
+	const parsed = dashboardConfigSchema.safeParse(normalized);
 	if (parsed.success) return {dashboard: parsed.data, error: null};
 
 	const issue = parsed.error.issues[0];

@@ -254,7 +254,10 @@ export function renderDashboardGrid(dashboard, results, busy) {
 			return `
 				<section class="dashboard-widget dashboard-widget-${widget.width}">
 					<div class="widget-head">
-						<h3>${escapeHtml(widget.title)}</h3>
+						<div class="widget-heading">
+							<h3>${escapeHtml(widget.title)}</h3>
+							${widget.subtitle ? `<p class="widget-subtitle">${escapeHtml(widget.subtitle)}</p>` : ''}
+						</div>
 						<span class="tag tag-quiet">${escapeHtml(widget.type)}</span>
 					</div>
 					<div class="widget-body">${body}</div>

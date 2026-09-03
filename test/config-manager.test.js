@@ -80,6 +80,7 @@ test('dashboard config can be saved, updated, loaded, and removed', () => {
 				{
 					type: 'table',
 					title: 'Orders',
+					subtitle: 'Orders placed in the selected period',
 					width: 'full',
 					sql: 'SELECT * FROM orders WHERE created_at >= $1 AND created_at < $2 LIMIT 1000',
 				},

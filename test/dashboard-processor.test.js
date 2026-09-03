@@ -27,12 +27,14 @@ test('runDashboard binds its time range and keeps widget failures isolated', asy
 				{
 					type: 'table',
 					title: 'Recent events',
+					subtitle: 'Events in the selected period',
 					width: 'half',
 					sql: 'SELECT name FROM events WHERE created_at >= $1 AND created_at < $2 ORDER BY created_at LIMIT 1000',
 				},
 				{
 					type: 'table',
 					title: 'Broken widget',
+					subtitle: 'A widget with an invalid result column',
 					width: 'half',
 					sql: 'SELECT missing FROM events WHERE created_at >= $1 AND created_at < $2 LIMIT 1000',
 				},
@@ -63,6 +65,7 @@ test('runDashboard rejects an inverted time range before querying', async () => 
 				{
 					type: 'table',
 					title: 'Events',
+					subtitle: 'Events in the selected period',
 					width: 'full',
 					sql: 'SELECT * FROM events WHERE created_at >= $1 AND created_at < $2 LIMIT 1000',
 				},
