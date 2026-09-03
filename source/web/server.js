@@ -34,6 +34,7 @@ import {publicAIStatus, resolveAIConfig} from '../utils/AIConfig.js';
 import {createLogHandler} from '../utils/Logger.js';
 import {generateDashboard, runDashboard} from '../utils/DashboardProcessor.js';
 import {parseDashboardConfig} from '../utils/DashboardConfig.js';
+import {isAbortError} from '../utils/abort.js';
 
 const schemas = new Map();
 let configuredAI;
@@ -76,26 +77,42 @@ const json = (body, status = 200) =>
 		},
 	);
 
-const ndjson = task =>
-	new Response(
+const ndjson = (task, requestSignal) => {
+	const taskController = new AbortController();
+	const abort = () => taskController.abort();
+	if (requestSignal?.aborted) abort();
+	else requestSignal?.addEventListener('abort', abort, {once: true});
+
+	return new Response(
 		new ReadableStream({
 			async start(controller) {
 				const encoder = new TextEncoder();
 				const send = value =>
 					controller.enqueue(encoder.encode(`${JSON.stringify(value)}\n`));
+				const heartbeat = setInterval(() => {
+					try {
+						send({type: 'heartbeat'});
+					} catch {
+						abort();
+					}
+				}, 5000);
 
 				try {
-					await task(send);
+					await task(send, taskController.signal);
 				} catch (error) {
-					try {
-						send({
-							type: 'error',
-							error: error.message || 'Unexpected streaming error',
-						});
-					} catch {
-						// The client disconnected.
+					if (!taskController.signal.aborted && !isAbortError(error)) {
+						try {
+							send({
+								type: 'error',
+								error: error.message || 'Unexpected streaming error',
+							});
+						} catch {
+							// The client disconnected.
+						}
 					}
 				} finally {
+					clearInterval(heartbeat);
+					requestSignal?.removeEventListener('abort', abort);
 					try {
 						controller.close();
 					} catch {
@@ -103,6 +120,7 @@ const ndjson = task =>
 					}
 				}
 			},
+			cancel: abort,
 		}),
 		{
 			headers: {
@@ -112,6 +130,7 @@ const ndjson = task =>
 			},
 		},
 	);
+};
 
 const notFound = () => json({error: 'Not found'}, 404);
 
@@ -229,7 +248,7 @@ const routeApi = async (request, url) => {
 
 			const schemaResult = await loadSchemaForSource(source);
 			if (schemaResult.error) return json({error: schemaResult.error}, 400);
-			const runGeneration = onLog =>
+			const runGeneration = (onLog, abortSignal = request.signal) =>
 				generateDashboard(
 					instruction,
 					currentDashboard,
@@ -237,18 +256,19 @@ const routeApi = async (request, url) => {
 					source.type,
 					configuredAI,
 					onLog,
+					abortSignal,
 				);
 
 			if (request.headers.get('accept')?.includes('application/x-ndjson')) {
-				return ndjson(async send => {
+				return ndjson(async (send, abortSignal) => {
 					const onLog = createLogHandler({
 						uiLog: message => send({type: 'log', message}),
 						fileLog: configuredFileLog,
 						verbose: configuredAI.verbose,
 					});
-					const result = await runGeneration(onLog);
+					const result = await runGeneration(onLog, abortSignal);
 					send({type: 'result', result});
-				});
+				}, request.signal);
 			}
 
 			const logs = [];

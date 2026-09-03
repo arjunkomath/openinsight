@@ -4,6 +4,7 @@ import {
 	parseDashboardConfig,
 } from './DashboardConfig.js';
 import {executeQuery} from './QueryProcessor.js';
+import {isAbortError, throwIfAborted} from './abort.js';
 
 export async function generateDashboard(
 	instruction,
@@ -12,6 +13,7 @@ export async function generateDashboard(
 	databaseType,
 	aiConfig,
 	onLog,
+	abortSignal,
 ) {
 	if (!aiConfig?.available) {
 		return {
@@ -22,6 +24,7 @@ export async function generateDashboard(
 	}
 
 	try {
+		throwIfAborted(abortSignal, 'Dashboard generation cancelled');
 		const aiClient = createAIClient(aiConfig, onLog);
 		onLog?.(
 			currentDashboard
@@ -33,6 +36,7 @@ export async function generateDashboard(
 			schema,
 			databaseType,
 			currentDashboard,
+			abortSignal,
 		);
 		if (result.error) {
 			return {error: result.error, dashboard: null, message: null};
@@ -54,6 +58,7 @@ export async function generateDashboard(
 
 		return {...parsed.data, error: null};
 	} catch (error) {
+		if (isAbortError(error)) throw error;
 		return {
 			error: error.message || 'Unexpected error while building the dashboard',
 			dashboard: null,

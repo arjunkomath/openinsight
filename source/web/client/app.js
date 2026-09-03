@@ -26,6 +26,7 @@ const state = {
 	dashboardMessage: '',
 	dashboardCreationPrompt: '',
 	dashboardLogs: [],
+	dashboardCancelling: false,
 	turns: [],
 	messages: [],
 	pendingSql: '',
@@ -47,6 +48,7 @@ const state = {
 let confirmTimer = null;
 let elapsedTimer = null;
 let busyStartedAt = 0;
+let dashboardGenerationController = null;
 
 const updateElapsed = () => {
 	const seconds = Math.round((Date.now() - busyStartedAt) / 1000);
@@ -267,6 +269,7 @@ document.querySelector('#app').innerHTML = `
 					<textarea id="dashboard-instruction" rows="3" placeholder="Build a dashboard for revenue, orders, and top customers…"></textarea>
 					<div class="actions">
 						<button class="primary" id="dashboard-generate-button" type="submit">Build dashboard</button>
+						<button class="danger" id="dashboard-cancel-button" data-action="cancel-dashboard-generation" type="button" hidden>Cancel request</button>
 						<span class="muted" id="dashboard-agent-status"></span>
 					</div>
 				</form>
@@ -376,6 +379,7 @@ const el = {
 	dashboardAgentTitle: document.querySelector('#dashboard-agent-title'),
 	dashboardInstruction: document.querySelector('#dashboard-instruction'),
 	dashboardGenerateButton: document.querySelector('#dashboard-generate-button'),
+	dashboardCancelButton: document.querySelector('#dashboard-cancel-button'),
 	dashboardAgentStatus: document.querySelector('#dashboard-agent-status'),
 	dashboardPreview: document.querySelector('#dashboard-preview'),
 	dashboardTitle: document.querySelector('#dashboard-title'),
@@ -872,8 +876,15 @@ const renderDashboardWorkspace = () => {
 		: draft
 			? 'Revise dashboard'
 			: 'Build dashboard';
+	el.dashboardCancelButton.hidden = !generating;
+	el.dashboardCancelButton.disabled = !generating || state.dashboardCancelling;
+	el.dashboardCancelButton.textContent = state.dashboardCancelling
+		? 'Stopping…'
+		: 'Cancel request';
 	el.dashboardAgentStatus.innerHTML = generating
-		? 'Asking the agent <span class="elapsed">0s</span>'
+		? state.dashboardCancelling
+			? 'Stopping the agent…'
+			: 'Asking the agent <span class="elapsed">0s</span>'
 		: '';
 	if (state.dashboardLogs.length === 0) {
 		el.dashboardActivity.innerHTML = '';
@@ -1086,18 +1097,34 @@ const switchView = async view => {
 	}
 };
 
+const cancelDashboardGeneration = () => {
+	if (
+		state.busy !== 'dashboard-generate' ||
+		!dashboardGenerationController ||
+		dashboardGenerationController.signal.aborted
+	) {
+		return;
+	}
+
+	dashboardGenerationController.abort();
+	setState({dashboardCancelling: true});
+};
+
 const generateDashboardDraft = async event => {
 	event.preventDefault();
 	const instruction = el.dashboardInstruction.value.trim();
 	if (!instruction || !state.selectedSourceId || isBusy()) return;
 
 	const editing = Boolean(state.dashboardDraft);
+	const controller = new AbortController();
+	dashboardGenerationController = controller;
 	startElapsed();
 	setState({
 		busy: 'dashboard-generate',
 		error: '',
 		dashboardLogs: [],
 		dashboardMessage: '',
+		dashboardCancelling: false,
 	});
 	try {
 		const result = await streamApi(
@@ -1108,16 +1135,21 @@ const generateDashboardDraft = async event => {
 					instruction,
 					currentDashboard: state.dashboardDraft,
 				}),
+				signal: controller.signal,
 			},
 			message =>
 				setState({
 					dashboardLogs: [...state.dashboardLogs, message],
 				}),
 		);
+		if (controller.signal.aborted) {
+			throw new DOMException('Dashboard generation cancelled', 'AbortError');
+		}
 		if (result.error) {
 			setState({
 				error: result.error,
 				busy: null,
+				dashboardCancelling: false,
 			});
 			return;
 		}
@@ -1133,11 +1165,31 @@ const generateDashboardDraft = async event => {
 				? state.dashboardCreationPrompt
 				: instruction,
 			busy: null,
+			dashboardCancelling: false,
 		});
 		await executeDashboard();
 	} catch (error) {
-		setState({error: error.message, busy: null});
+		if (controller.signal.aborted || error.name === 'AbortError') {
+			const message = editing
+				? 'Agent request cancelled. Dashboard unchanged.'
+				: 'Agent request cancelled.';
+			setState({
+				busy: null,
+				dashboardCancelling: false,
+				dashboardMessage: message,
+				dashboardLogs: [...state.dashboardLogs, message],
+			});
+		} else {
+			setState({
+				error: error.message,
+				busy: null,
+				dashboardCancelling: false,
+			});
+		}
 	} finally {
+		if (dashboardGenerationController === controller) {
+			dashboardGenerationController = null;
+		}
 		stopElapsed();
 	}
 };
@@ -1555,6 +1607,7 @@ const actions = {
 	'save-dashboard': saveDashboardDraft,
 	'discard-dashboard': discardDashboardDraft,
 	'run-dashboard': executeDashboard,
+	'cancel-dashboard-generation': cancelDashboardGeneration,
 	'set-dashboard-range': async button => {
 		const days = Number(button.dataset.days);
 		setState({dashboardRange: relativeRange(days)});

@@ -1,12 +1,39 @@
 import {expect, test} from 'bun:test';
 import {createConnection} from '../source/utils/DbConnector.js';
-import {runDashboard} from '../source/utils/DashboardProcessor.js';
+import {
+	generateDashboard,
+	runDashboard,
+} from '../source/utils/DashboardProcessor.js';
+import {isAbortError} from '../source/utils/abort.js';
 
 const unavailableAI = {
 	provider: 'claude',
 	available: false,
 	unavailableMessage: 'AI unavailable in test',
 };
+
+test('generateDashboard preserves cancellation as an AbortError', async () => {
+	const controller = new AbortController();
+	controller.abort();
+
+	let thrown;
+	try {
+		await generateDashboard(
+			'Build a dashboard',
+			null,
+			{},
+			'sqlite',
+			{available: true, provider: 'test'},
+			null,
+			controller.signal,
+		);
+	} catch (error) {
+		thrown = error;
+	}
+
+	expect(isAbortError(thrown)).toBe(true);
+	expect(thrown.message).toBe('Dashboard generation cancelled');
+});
 
 test('runDashboard binds its time range and keeps widget failures isolated', async () => {
 	const path = `/tmp/openinsight-dashboard-${crypto.randomUUID()}.db`;

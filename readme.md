@@ -18,7 +18,8 @@
 The web UI includes a Dashboards tab. Ask the configured agent to build a
 dashboard or revise the selected dashboard in natural language. The agent owns
 the widget queries, visualization types, column mappings, order, and layout;
-changes remain a draft until you save them.
+changes remain a draft until you save them. In-flight agent requests can be
+cancelled without changing the current dashboard draft.
 
 Dashboards support tables and Chart.js line, bar, and pie charts. Every widget
 has an agent-authored title and subtitle and uses the dashboard's shared time

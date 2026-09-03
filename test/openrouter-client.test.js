@@ -82,6 +82,7 @@ test('OpenRouter client summarizes query results with an optional instruction', 
 
 test('OpenRouter client generates complete editable dashboard configs', async () => {
 	let request;
+	const controller = new AbortController();
 	const dashboard = {
 		title: 'Orders',
 		description: 'Order volume',
@@ -111,6 +112,7 @@ test('OpenRouter client generates complete editable dashboard configs', async ()
 		{orders: [{column: 'created_at', type: 'timestamp'}]},
 		'postgres',
 		{...dashboard, title: 'Old title'},
+		controller.signal,
 	);
 
 	expect(result).toEqual({
@@ -120,5 +122,6 @@ test('OpenRouter client generates complete editable dashboard configs', async ()
 	});
 	expect(request.system).toContain('$1 as the inclusive start time');
 	expect(request.system).toContain('concise subtitle');
+	expect(request.abortSignal).toBe(controller.signal);
 	expect(request.messages[0].content).toContain('Old title');
 });
