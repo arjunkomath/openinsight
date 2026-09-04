@@ -108,8 +108,7 @@ async function stageMainPackage() {
 	await copyFile('readme.md', path.join(dir, 'readme.md'));
 	await copyFile('LICENSE', path.join(dir, 'LICENSE'));
 
-	const {scripts, dependencies, devDependencies, prettier, ...manifest} =
-		source;
+	const {scripts, dependencies, devDependencies, ...manifest} = source;
 
 	const optionalDependencies = Object.fromEntries(
 		Object.keys(targets).map(target => [platformPackageName(target), version]),

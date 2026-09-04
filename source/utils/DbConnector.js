@@ -52,6 +52,29 @@ function translateAbortError(error, abortSignal, message) {
 	return error;
 }
 
+export function prepareDriverQuery(sql, parameters, protocol) {
+	if (protocol !== 'mysql' || parameters.length === 0) {
+		return {sql, parameters};
+	}
+
+	const boundParameters = [];
+	let translated = false;
+	const driverSql = sql.replace(/\$(\d+)\b/g, (placeholder, value) => {
+		const index = Number(value) - 1;
+		if (index < 0 || index >= parameters.length) {
+			throw new Error(`No value supplied for parameter ${placeholder}`);
+		}
+
+		translated = true;
+		boundParameters.push(parameters[index]);
+		return '?';
+	});
+
+	return translated
+		? {sql: driverSql, parameters: boundParameters}
+		: {sql, parameters};
+}
+
 class SqlConnection {
 	constructor(connectionString, protocol) {
 		this.connectionString = connectionString;
@@ -67,16 +90,19 @@ class SqlConnection {
 		return this.client;
 	}
 
-	async query(sql, {abortSignal} = {}) {
+	async query(sql, {abortSignal, parameters = []} = {}) {
 		throwIfAborted(abortSignal, 'Query execution cancelled');
 
+		const driverQuery = prepareDriverQuery(sql, parameters, this.protocol);
 		const useEphemeralClient =
 			this.protocol === 'mysql' && Boolean(abortSignal);
 		const client = useEphemeralClient
 			? new SQL(this.connectionString)
 			: this.#getClient();
 
-		const query = client.unsafe(sql).execute();
+		const query = client
+			.unsafe(driverQuery.sql, driverQuery.parameters)
+			.execute();
 
 		const onAbort = () => {
 			try {

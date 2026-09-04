@@ -18,6 +18,17 @@ test('executeQuery rejects non-read-only SQL before connecting', async () => {
 	});
 });
 
+test('executeQuery rejects SELECT INTO before connecting', async () => {
+	const sql = 'SELECT * INTO users_copy FROM users';
+	const result = await executeQuery(sql, 'sqlite://./missing.db', {}, null);
+
+	expect(result).toEqual({
+		error: 'Only SELECT queries are allowed',
+		sql,
+		data: null,
+	});
+});
+
 test('executeQuery redacts database credentials before file logging', async () => {
 	const uiLogs = [];
 	const fileLogs = [];
