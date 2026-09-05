@@ -53,22 +53,26 @@ function translateAbortError(error, abortSignal, message) {
 }
 
 export function prepareDriverQuery(sql, parameters, protocol) {
-	if (protocol !== 'mysql' || parameters.length === 0) {
+	if (!['mysql', 'sqlite'].includes(protocol) || parameters.length === 0) {
 		return {sql, parameters};
 	}
 
 	const boundParameters = [];
 	let translated = false;
-	const driverSql = sql.replace(/\$(\d+)\b/g, (placeholder, value) => {
-		const index = Number(value) - 1;
-		if (index < 0 || index >= parameters.length) {
-			throw new Error(`No value supplied for parameter ${placeholder}`);
-		}
+	const driverSql = sql.replace(
+		/'(?:''|[^'])*'|"(?:""|[^"])*"|`(?:``|[^`])*`|\[[^\]]*\]|--[^\r\n]*|\/\*[\s\S]*?\*\/|\$(\d+)\b/g,
+		(placeholder, value) => {
+			if (value === undefined) return placeholder;
+			const index = Number(value) - 1;
+			if (index < 0 || index >= parameters.length) {
+				throw new Error(`No value supplied for parameter ${placeholder}`);
+			}
 
-		translated = true;
-		boundParameters.push(parameters[index]);
-		return '?';
-	});
+			translated = true;
+			boundParameters.push(parameters[index]);
+			return '?';
+		},
+	);
 
 	return translated
 		? {sql: driverSql, parameters: boundParameters}

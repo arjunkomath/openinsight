@@ -76,6 +76,29 @@ test('prepareDriverQuery leaves PostgreSQL parameters unchanged', () => {
 	});
 });
 
+test('SQLite binds numbered parameters regardless of order and repetition', async () => {
+	const conn = await createConnection('sqlite://:memory:');
+	try {
+		const rows = await conn.query(
+			`SELECT $2 AS end, $1 AS start, $2 AS repeated, '$1' AS literal, 'it''s $2' AS escaped, $1 AS "$2" /* $3 */ -- $4
+			WHERE '2026-02-01' < $2 AND '2026-02-01' >= $1`,
+			{parameters: ['2026-01-01', '2026-03-01']},
+		);
+		expect(rows).toEqual([
+			{
+				end: '2026-03-01',
+				start: '2026-01-01',
+				repeated: '2026-03-01',
+				literal: '$1',
+				escaped: "it's $2",
+				$2: '2026-01-01',
+			},
+		]);
+	} finally {
+		await conn.close();
+	}
+});
+
 test('sqlite connection can query via Bun.SQL', async () => {
 	const path = `/tmp/openinsight-test-${crypto.randomUUID()}.db`;
 	const connectionString = `sqlite://${path}`;
