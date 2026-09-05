@@ -1042,6 +1042,7 @@ const selectSource = async sourceId => {
 };
 
 const selectDashboard = async dashboardId => {
+	if (isBusy()) return;
 	if (state.dashboardDirty) {
 		setState({error: 'Save or discard the current dashboard changes first'});
 		return;
