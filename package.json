@@ -1,6 +1,6 @@
 {
 	"name": "openinsight",
-	"version": "0.15.0",
+	"version": "0.16.0",
 	"description": "Query your database with natural language",
 	"license": "MIT",
 	"author": "Arjun Komath",
