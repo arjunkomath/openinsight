@@ -70,6 +70,11 @@ jobs:
 
           chmod +x dist/package/openinsight
 
+      - name: Verify macOS code signature
+        if: runner.os == 'macOS'
+        shell: bash
+        run: codesign --verify --strict --verbose=2 dist/package/openinsight
+
       - name: Smoke test binary
         shell: bash
         run: ./dist/package/openinsight --help

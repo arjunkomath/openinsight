@@ -1,6 +1,6 @@
 {
 	"name": "openinsight",
-	"version": "0.16.0",
+	"version": "0.16.1",
 	"description": "Query your database with natural language",
 	"license": "MIT",
 	"author": "Arjun Komath",
@@ -12,7 +12,7 @@
 	"bugs": {
 		"url": "https://github.com/arjunkomath/openinsight/issues"
 	},
-	"packageManager": "bun@1.4.0",
+	"packageManager": "bun@1.4.2",
 	"keywords": [
 		"database",
 		"sql",
